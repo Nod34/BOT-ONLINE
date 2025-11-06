@@ -4,11 +4,8 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 import logging
-from typing import Optional, Literal
-from datetime import datetime
-import asyncio
 from threading import Thread
-from flask import Flask
+from flask import Flask, jsonify
 
 import database as db
 import utils
@@ -21,32 +18,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-PORT = int(os.getenv("PORT", 5000))
-
-if not BOT_TOKEN:
-    logger.error("BOT_TOKEN não encontrado no arquivo .env")
-    exit(1)
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-intents.guilds = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
-
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot Discord de Sorteios está online! ✅", 200
+    return "✅ Bot Discord está online e rodando!", 200
 
 @app.route('/health')
 def health():
-    return {"status": "ok", "bot": "online"}, 200
+    # retorna status simples para UptimeRobot
+    status = {
+        "status": "healthy",
+        "bot": getattr(bot, "user", None).name if getattr(bot, "user", None) else "connecting"
+    }
+    return jsonify(status), 200
 
 def run_flask():
-    app.run(host='0.0.0.0', port=PORT)
+    port = int(os.getenv("PORT", 5000))
+    # host 0.0.0.0 para o Render expor o serviço
+    app.run(host='0.0.0.0', port=port, debug=False)
 
 class InscricaoModal(discord.ui.Modal, title="Inscrição no Sorteio"):
     primeiro_nome = discord.ui.TextInput(
@@ -926,8 +916,8 @@ async def limpar(interaction: discord.Interaction):
     view = ConfirmView()
     msg = await interaction.response.send_message(
         "⚠️ **Escolha o tipo de limpeza:**\n"
-        "• **Limpar Inscrições**: Remove apenas os participantes\n"
-        "• **Limpar Tudo**: Remove participantes E configurações",
+        "• **Limpar Inscrições**: Removes only participants data\n"
+        "• **Limpar Tudo**: Removes participants AND settings",
         view=view,
         ephemeral=True
     )
@@ -1285,11 +1275,19 @@ async def sync(interaction: discord.Interaction, guild_id: Optional[str] = None)
         )
 
 if __name__ == "__main__":
+    # carrega variáveis de ambiente (já usa load_dotenv no topo)
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
+    if not BOT_TOKEN:
+        logging.error("BOT_TOKEN não encontrado nas variáveis de ambiente")
+        exit(1)
+
+    # inicia Flask em thread separada (daemon)
     flask_thread = Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    logger.info(f"Servidor Flask iniciado na porta {PORT}")
-    
+    logging.info(f"Flask server iniciado na porta {os.getenv('PORT', 5000)}")
+
     try:
         bot.run(BOT_TOKEN)
     except Exception as e:
-        logger.error(f"Erro ao iniciar bot: {e}", exc_info=True)
+        logging.error(f"Erro ao iniciar o bot: {e}", exc_info=True)
+        exit(1)
