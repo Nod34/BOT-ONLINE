@@ -1,0 +1,95 @@
+{
+    "participants": {
+        "1037145864516407306": {
+            "first_name": "Rafael",
+            "last_name": "Felipe",
+            "tickets": {
+                "base": 1,
+                "roles": {
+                    "1431281152571998330": {
+                        "quantity": 1,
+                        "abbreviation": "M.E"
+                    },
+                    "1430563402086092851": {
+                        "quantity": 1,
+                        "abbreviation": "Tester"
+                    },
+                    "1430563210792140923": {
+                        "quantity": 1,
+                        "abbreviation": "M.B"
+                    }
+                },
+                "tag": 0
+            },
+            "message_id": 1436126289693114389,
+            "timestamp": "2025-11-06T22:53:09.518276"
+        },
+        "1414715180322914414": {
+            "first_name": "Rodrigo",
+            "last_name": "Carvalho",
+            "tickets": {
+                "base": 1,
+                "roles": {
+                    "1431281920452329492": {
+                        "quantity": 1,
+                        "abbreviation": "G.S"
+                    },
+                    "1431281235736662238": {
+                        "quantity": 1,
+                        "abbreviation": "O.E"
+                    },
+                    "1430563402086092851": {
+                        "quantity": 1,
+                        "abbreviation": "Tester"
+                    },
+                    "1430563210792140923": {
+                        "quantity": 1,
+                        "abbreviation": "M.B"
+                    }
+                },
+                "tag": 0
+            },
+            "message_id": 1436126414742093944,
+            "timestamp": "2025-11-06T22:53:39.309670"
+        }
+    },
+    "bonus_roles": {
+        "1431281920452329492": {
+            "quantity": 1,
+            "abbreviation": "G.S"
+        },
+        "1431281152571998330": {
+            "quantity": 1,
+            "abbreviation": "M.E"
+        },
+        "1431281235736662238": {
+            "quantity": 1,
+            "abbreviation": "O.E"
+        },
+        "1430563402086092851": {
+            "quantity": 1,
+            "abbreviation": "Tester"
+        },
+        "1430563210792140923": {
+            "quantity": 1,
+            "abbreviation": "M.B"
+        }
+    },
+    "hashtag": {
+        "value": "#tropadovth",
+        "locked": false
+    },
+    "tag": {
+        "enabled": true,
+        "text": "VTH",
+        "quantity": 1
+    },
+    "inscricao_channel": 1430852198673420424,
+    "button_message_id": 1436121182217830510,
+    "blacklist": {},
+    "chat_lock": {
+        "enabled": true,
+        "channel_id": 1430852198673420424
+    },
+    "moderators": []
+}

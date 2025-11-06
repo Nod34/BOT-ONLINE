@@ -1,0 +1,89 @@
+Crie um bot de Discord em Python (discord.py v2.3.2) com estas especificações completas:
+
+1) Requisitos gerais
+- Permitir deploy no Replit (inclua um pequeno servidor Flask para keepalive).
+- Usar arquivo .env para BOT_TOKEN.
+- Logging com nível INFO e tratamento de exceções.
+- Banco simples baseado em JSON (database.py) com funções: load/save, add_participant, remove_participant, get_participant, get_all_participants, is_registered, add_bonus_role, remove_bonus_role, set_hashtag, lock_hashtag, set_inscricao_channel, get_inscricao_channel, add_to_blacklist, remove_from_blacklist, get_blacklist, clear_participants, clear_all, set_chat_lock, get_statistics, update_tickets, etc.
+- Arquitetura: bot.py (principal), database.py, utils.py, requirements.txt, .replit, .env.example, README.md.
+
+2) Funcionalidade de inscrição (modal)
+- Modal InscricaoModal com campos: primeiro nome, sobrenome, hashtag.
+- Validações:
+  - Nome e sobrenome: sem números, mínimo 3 caracteres, cada parte >2 caracteres, pelo menos uma letra.
+  - Não permitir nomes duplicados (is_name_taken).
+  - Verificar blacklist antes.
+  - Verificar hashtag obrigatória: se não configurada, retornar aviso; se incorreta, avisar com hashtag correta.
+- Ao aprovar: postar mensagem no canal de inscrições (configurado por /setup_inscricao), calcular fichas com função calculate_tickets(member, bonus_roles, tag_enabled, server_tag, tag_quantity), adicionar participante no DB com message_id, tickets e timestamp, reagir com ✅ na mensagem.
+
+3) Substituir /inscrever por /setup_inscricao (comportamento)
+- /setup_inscricao (admin) — parâmetros:
+  - canal_botao: TextChannel (onde será enviada a mensagem com botão)
+  - canal_inscricoes: TextChannel (onde serão postadas as inscrições)
+  - mensagem: Optional[str] (texto opcional que acompanha o botão)
+  - midia: Optional[Attachment] (imagem ou vídeo opcional)
+- Efeitos:
+  - Salvar inscricao_channel no DB.
+  - Enviar mensagem em canal_botao com botão persistente "Inscrever-se no Sorteio" (view timeout=None).
+  - Se midia fornecida, enviar como arquivo junto.
+  - Salvar message_id do botão no DB para re-registrar view no on_ready.
+  - Registrar view em runtime (client.add_view).
+
+4) Persistência de botões
+- No on_ready, re-registrar views encontrando button_message_id(s) salvos no DB para manter o callback do botão após reinício.
+
+5) Lista / exportação / formato detalhado
+- /lista tipo: simples|detalhada (admin)
+  - simples: mostra nomes completos
+  - detalhada: para cada participante gerar linhas:
+    - "PrimeiroNome Últimas2LetrasDoSobrenome." — ficha base (participação)
+    - para cada ficha de cargo: "PrimeiroNome Últimas2Sobrenome. AB" (AB = abreviação configurada no /fichas)
+    - para cada ficha de tag: "PrimeiroNome Últimas2Sobrenome. TAG"
+  - Ex.: 
+    Rafael Fe.
+    Rafael Fe. S.B
+    Rafael Fe. TAG
+- /exportar tipo: simples|detalhada — gerar arquivo .txt (ou .csv) e enviar como attachment.
+
+6) Comandos públicos
+- /verificar — mostra seu status (nome, total de fichas, lista de fichas detalhada).
+
+7) Comandos administrativos (detalhar parâmetros)
+- /ajuda — mostra a lista de comandos (diferencia admin/não-admin).
+- /setup_inscricao — já descrito.
+- /hashtag hashtag:str — define hashtag. Se locked não altera.
+- /tag acao:on|off|status texto:Optional quantidade:Optional — configurar tag do servidor.
+- /fichas cargo:Role quantidade:int abreviacao:str — adiciona cargo bônus.
+- /tirar cargo:Role — remove cargo de bônus.
+- /lista tipo:Choice — listado acima.
+- /exportar tipo:Choice — exportar arquivo.
+- /atualizar — recalcula fichas de todos.
+- /estatisticas — mostra total inscritos, total fichas, fichas por cargo, com tag.
+- /limpar — abre modal/botões para confirmar limpeza parcial (inscrições) ou total (inclui configs); ao deletar mensagens tenta apagar mensagens de inscrição usando message_id.
+- /blacklist acao:banir|desbanir|lista usuario:Optional motivo:Optional — gerencia blacklist; ao banir remove inscrição e deleta mensagem associada.
+- /chat acao:on|off|status canal:Optional — ativa bloqueio de chat (apaga mensagens de não-admins no canal bloqueado e exibe orientação para usar o botão).
+- /anunciar canal:TextChannel mensagem:str embed:bool titulo:Optional cor:Optional imagem:Optional[Attachment] — envia anúncio com opção de embed e mídia.
+- /sync guild_id:Optional[str] — sincronizar comandos.
+
+8) Utils
+- calculate_tickets(member, bonus_roles, tag_enabled, server_tag, tag_quantity) — retorna dict com estrutura: {'base':1, 'roles':{role_id:{'quantity':n,'abbreviation':'S.B'}}, 'tag':n}
+- get_total_tickets(tickets_dict) — soma total de fichas.
+- format_tickets_list(tickets_dict) — retorna lista de strings para mostrar em /verificar.
+
+9) Tratamento de mídia e permissões
+- Se o Discord não permitir attachment em slash, aceitar URL ou usar followup para enviar arquivo.
+- Comandos admin exigem app_commands.default_permissions(administrator=True).
+
+10) Testes e deploy
+- Incluir requirements.txt com discord.py==2.3.2 e python-dotenv.
+- Instruções no README para configurar .env com BOT_TOKEN e PORT.
+- Incluir comandos para rodar localmente e no Replit (start: python bot.py).
+- Escrever 3 testes simples (pode ser em form of unit tests) para funções utilitárias (validate names, calculate_tickets, formatting function).
+
+11) Entregáveis
+- Arquivos: bot.py, database.py, utils.py, requirements.txt, .env.example, README.md.
+- Comentários claros em cada função.
+- Exemplo de uso de cada slash command na README.
+- Mensagens de erro claras para o usuário.
+
+Responda com: primeiro gere o projeto completo (arquivos listados) e devolva o código fonte para revisão. Se alguma função do DB ou utilitário não foi especificada, faça escolhas razoáveis e documente-as no código.
