@@ -38,6 +38,16 @@ def run_flask():
 
 load_dotenv()
 
+# Adição: imports de typing (se ainda não existirem) e criação da instância do bot
+from typing import Optional, Literal
+
+intents = discord.Intents.default()
+intents.members = True
+intents.message_content = True
+intents.guilds = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
