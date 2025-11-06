@@ -6,17 +6,8 @@ from dotenv import load_dotenv
 import logging
 from threading import Thread
 from flask import Flask, jsonify
-
-import database as db
-import utils
-
-load_dotenv()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+import os
+import logging
 
 app = Flask(__name__)
 
@@ -26,17 +17,32 @@ def home():
 
 @app.route('/health')
 def health():
-    # retorna status simples para UptimeRobot
-    status = {
-        "status": "healthy",
-        "bot": getattr(bot, "user", None).name if getattr(bot, "user", None) else "connecting"
-    }
-    return jsonify(status), 200
+    # tenta pegar objeto do bot (suporta tanto 'bot' quanto 'client')
+    bot_obj = None
+    for name in ('bot', 'client'):
+        obj = globals().get(name)
+        if obj:
+            bot_obj = obj
+            break
+    bot_name = "connecting"
+    try:
+        if bot_obj and getattr(bot_obj, "user", None):
+            bot_name = bot_obj.user.name
+    except Exception:
+        bot_name = "connecting"
+    return jsonify({"status": "healthy", "bot": bot_name}), 200
 
 def run_flask():
     port = int(os.getenv("PORT", 5000))
-    # host 0.0.0.0 para o Render expor o serviço
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False)
+
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class InscricaoModal(discord.ui.Modal, title="Inscrição no Sorteio"):
     primeiro_nome = discord.ui.TextInput(
@@ -1281,13 +1287,19 @@ if __name__ == "__main__":
         logging.error("BOT_TOKEN não encontrado nas variáveis de ambiente")
         exit(1)
 
-    # inicia Flask em thread separada (daemon)
-    flask_thread = Thread(target=run_flask, daemon=True)
-    flask_thread.start()
+    # inicia Flask em thread antes de iniciar o cliente/bot
+    Thread(target=run_flask, daemon=True).start()
     logging.info(f"Flask server iniciado na porta {os.getenv('PORT', 5000)}")
 
     try:
-        bot.run(BOT_TOKEN)
+        # use o nome real da sua instância (bot.run(...) ou client.run(...))
+        if 'bot' in globals():
+            globals()['bot'].run(BOT_TOKEN)
+        elif 'client' in globals():
+            globals()['client'].run(BOT_TOKEN)
+        else:
+            logging.error('Nenhuma instância de bot/client encontrada para executar.')
+            exit(1)
     except Exception as e:
         logging.error(f"Erro ao iniciar o bot: {e}", exc_info=True)
         exit(1)
