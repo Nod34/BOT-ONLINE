@@ -177,8 +177,17 @@ class InscricaoModal(discord.ui.Modal, title="Inscrição no Sorteio"):
                 pass
 
 class InscricaoView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, show_verify: bool = True):
         super().__init__(timeout=None)
+
+        # se show_verify for False, removemos o botão "Verificar minha inscrição"
+        if not show_verify:
+            # removemos qualquer item com esse custom_id ou label
+            for item in list(self.children):
+                label = getattr(item, "label", "")
+                cid = getattr(item, "custom_id", None)
+                if cid == "verificar_button" or label == "Verificar minha inscrição":
+                    self.remove_item(item)
 
     @discord.ui.button(
         label="Inscrever-se no Sorteio",
@@ -201,6 +210,7 @@ class InscricaoView(discord.ui.View):
         custom_id="verificar_button"
     )
     async def verificar_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # reutiliza a mesma lógica do comando /verificar para garantir igualdade
         participant = db.get_participant(interaction.user.id)
         if not participant:
             await interaction.response.send_message(
@@ -257,6 +267,8 @@ async def on_ready():
     try:
         button_msg_id = db.get_button_message_id()
         if button_msg_id:
+            # re-registramos a view padrão (se quiser controlar show_verify ao re-registrar,
+            # você precisaria salvar a flag verificar_botao no DB junto com button_msg_id)
             bot.add_view(InscricaoView(), message_id=button_msg_id)
             logger.info(f"View do botão re-registrada para message_id: {button_msg_id}")
     except Exception as e:
@@ -267,6 +279,29 @@ async def on_ready():
         logger.info(f"Sincronizados {len(synced)} comandos")
     except Exception as e:
         logger.error(f"Erro ao sincronizar comandos: {e}")
+
+    # tenta definir default_member_permissions para comandos administrativos se a versão suportar
+    try:
+        admin_cmds = [
+            "setup_inscricao","hashtag","tag","fichas","tirar","lista","exportar",
+            "atualizar","estatisticas","limpar","blacklist","chat","anunciar",
+            "controle_acesso","tag_manual","sync"
+        ]
+        for name in admin_cmds:
+            cmd = None
+            try:
+                cmd = bot.tree.get_command(name)
+            except Exception:
+                # fallback: procurar manualmente
+                for c in bot.tree.commands:
+                    if c.name == name:
+                        cmd = c
+                        break
+            if cmd and hasattr(cmd, "default_member_permissions"):
+                cmd.default_member_permissions = discord.Permissions(administrator=True)
+    except Exception:
+        # não crítico — se a lib não suportar, seguimos com checagem manual
+        pass
 
 @bot.event
 async def on_message(message):
@@ -380,14 +415,16 @@ async def verificar(interaction: discord.Interaction):
     canal_botao="Canal onde será enviado o botão de inscrição",
     canal_inscricoes="Canal onde serão postadas as inscrições",
     mensagem="Mensagem opcional que acompanha o botão",
-    midia="Imagem ou vídeo opcional"
+    midia="Imagem ou vídeo opcional",
+    verificar_botao="Exibir botão 'Verificar minha inscrição' na mensagem? (True/False)"
 )
 async def setup_inscricao(
     interaction: discord.Interaction,
     canal_botao: discord.TextChannel,
     canal_inscricoes: discord.TextChannel,
     mensagem: Optional[str] = None,
-    midia: Optional[discord.Attachment] = None
+    midia: Optional[discord.Attachment] = None,
+    verificar_botao: Optional[bool] = False
 ):
     # checagem de permissão manual (compatível com qualquer versão)
     if not is_admin_or_moderator(interaction):
@@ -402,7 +439,8 @@ async def setup_inscricao(
         
         db.set_inscricao_channel(canal_inscricoes.id)
         
-        view = InscricaoView()
+        # passa a flag para a view: se False, o botão "Verificar minha inscrição" é removido
+        view = InscricaoView(show_verify=bool(verificar_botao))
         
         content = mensagem or "**INSCRIÇÕES ABERTAS!**\nClique no botão em baixo para se inscrever!"
         
@@ -422,11 +460,12 @@ async def setup_inscricao(
         await interaction.followup.send(
             f"✅ Sistema de inscrições configurado!\n"
             f"**Canal do botão**: {canal_botao.mention}\n"
-            f"**Canal de inscrições**: {canal_inscricoes.mention}",
+            f"**Canal de inscrições**: {canal_inscricoes.mention}\n"
+            f"**Botão de verificação**: {'Ativado' if verificar_botao else 'Desativado'}",
             ephemeral=True
         )
         
-        logger.info(f"Setup de inscrição configurado por {interaction.user}")
+        logger.info(f"Setup de inscrição configurado por {interaction.user} (verificar_botao={verificar_botao})")
         
     except Exception as e:
         logger.error(f"Erro no setup_inscricao: {e}", exc_info=True)
