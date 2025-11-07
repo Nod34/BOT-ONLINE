@@ -442,7 +442,7 @@ def is_admin_or_moderator(interaction: discord.Interaction) -> bool:
 @bot.tree.command(name="hashtag", description="[ADMIN] Define a hashtag obrigatória")
 @app_commands.guild_only()
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(hashag="Hashtag obrigatória para inscrição")
+@app_commands.describe(hashtag="Hashtag obrigatória para inscrição")
 async def hashtag(interaction: discord.Interaction, hashtag: str):
     if not is_admin_or_moderator(interaction):
         await interaction.response.send_message(
