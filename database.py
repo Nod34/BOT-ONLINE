@@ -472,47 +472,44 @@ def get_chat_lock() -> Dict[str, Any]:
     data = load()
     return data["chat_lock"]
 
-def clear_participants() -> bool:
-    """
-    Limpa todos os participantes.
-    
-    Returns:
-        True se limpou com sucesso
-    """
-    data = load()
-    data["participants"] = {}
-    return save(data)
+def clear_participants():
+    """Limpa apenas dados de participantes mantendo TAGs manuais"""
+    # Guarda TAGs manuais antes de limpar
+    manual_tags = {}
+    try:
+        for user_id, data in get_all_participants().items():
+            if data.get("tickets", {}).get("manual_tag"):
+                manual_tags[user_id] = data["tickets"]["manual_tag"]
+    except:
+        pass
 
-def clear_all() -> bool:
-    """
-    Limpa todo o banco de dados (reset completo).
+    # Limpa participantes
+    _db["participants"] = {}
     
-    Returns:
-        True se limpou com sucesso
-    """
-    data = {
-        "participants": {},
-        "bonus_roles": {},
-        "hashtag": {
-            "value": None,
-            "locked": False
-        },
-        "tag": {
-            "enabled": False,
-            "text": None,
-            "quantity": 1
-        },
-        "inscricao_channel": None,
-        "button_message_id": [],
-        "inscricoes_closed": False,
-        "blacklist": {},
-        "chat_lock": {
-            "enabled": False,
-            "channel_id": None
-        },
-        "moderators": []
-    }
-    return save(data)
+    # Restaura TAGs manuais como tickets
+    for user_id, tag_amount in manual_tags.items():
+        _db["participants"][user_id] = {
+            "tickets": {"manual_tag": tag_amount}
+        }
+
+def clear_all():
+    """Limpa tudo exceto TAGs manuais"""
+    manual_tags = {}
+    try:
+        for user_id, data in get_all_participants().items():
+            if data.get("tickets", {}).get("manual_tag"):
+                manual_tags[user_id] = data["tickets"]["manual_tag"]
+    except:
+        pass
+
+    _db.clear()
+    _init_db()
+
+    # Restaura TAGs manuais
+    for user_id, tag_amount in manual_tags.items():
+        _db["participants"][user_id] = {
+            "tickets": {"manual_tag": tag_amount}
+        }
 
 def get_statistics() -> Dict[str, Any]:
     """
