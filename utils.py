@@ -9,17 +9,18 @@ def _clean_text(s: Optional[str]) -> str:
     return re.sub(r'[^\w\s]', '', s).strip().casefold()
 
 def calculate_tickets(
-    member: discord.abc.User, 
+    member: discord.abc.User,
     bonus_roles: Dict[str, Any],
     tag_enabled: bool,
     tag_text: Optional[str],
-    tag_quantity: int
+    tag_quantity: int,
+    manual_tag: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Calcula o dicionário de 'tickets' para um membro.
     - bonus_roles: dict do DB com keys = role_id (str) -> {quantity, abbreviation}
     - Detecta TAGs tanto em nomes (nick/display/global/name) quanto em roles (role.name).
-    - não inclui 'manual_tag' (essa é aplicada separadamente via DB/tag_manual)
+    - Se manual_tag for fornecido, ele será incluído em tickets['manual_tag'] (útil ao recalcular).
     """
     tickets: Dict[str, Any] = {}
     tickets["base"] = 1
@@ -38,7 +39,7 @@ def calculate_tickets(
                         "abbreviation": entry.get("abbreviation", "")
                     }
     except Exception:
-        # membro pode ser discord.User (sem roles) — ignora
+        # membro pode ser discord.User (sem roles) — ignora roles
         member_roles = []
 
     if roles_dict:
@@ -86,6 +87,10 @@ def calculate_tickets(
         if found:
             tickets["tag"] = int(tag_quantity or 1)
 
+    # Mescla manual_tag se fornecido (útil ao recalcular mantendo o valor manual do DB)
+    if manual_tag is not None and int(manual_tag) > 0:
+        tickets["manual_tag"] = int(manual_tag)
+
     return tickets
 
 def get_total_tickets(tickets: Optional[Dict[str, Any]]) -> int:
@@ -104,9 +109,10 @@ def get_total_tickets(tickets: Optional[Dict[str, Any]]) -> int:
     total += int(tickets.get("manual_tag", 0))
     return max(1, total)
 
-def format_tickets_list(tickets: Optional[Dict[str, Any]], guild: discord.Guild) -> List[str]:
+def format_tickets_list(tickets: Optional[Dict[str, Any]], guild: Optional[discord.Guild]) -> List[str]:
     """
     Retorna lista de linhas descrevendo as fichas (para embed).
+    guild pode ser None — neste caso nomes dos cargos ficam com o id.
     """
     lines: List[str] = []
     if not tickets:
@@ -121,8 +127,11 @@ def format_tickets_list(tickets: Optional[Dict[str, Any]], guild: discord.Guild)
         qty = info.get("quantity", 0)
         abbr = info.get("abbreviation", "")
         try:
-            role_obj = guild.get_role(int(rid))
-            role_name = role_obj.name if role_obj else f"Cargo ({rid})"
+            if guild:
+                role_obj = guild.get_role(int(rid))
+                role_name = role_obj.name if role_obj else f"Cargo ({rid})"
+            else:
+                role_name = f"Cargo ({rid})"
         except Exception:
             role_name = f"Cargo ({rid})"
         lines.append(f"• {qty} ficha(s) por cargo: {role_name} {f'({abbr})' if abbr else ''}".strip())
@@ -139,19 +148,21 @@ def format_tickets_list(tickets: Optional[Dict[str, Any]], guild: discord.Guild)
 
     return lines
 
-def format_detailed_entry(first_name: str, last_name: str, tickets: Dict[str, Any]) -> List[str]:
+def format_detailed_entry(first_name: str, last_name: str, tickets: Dict[str, Any], guild: Optional[discord.Guild] = None) -> List[str]:
     """
     Formata uma entrada detalhada usada em /lista com_fichas e /exportar com_fichas.
     Não adiciona linhas em branco entre participantes.
+    Se guild for fornecido, detalha nomes de cargos; caso contrário usa ids.
     """
     lines: List[str] = []
     name = f"{first_name} {last_name}".strip()
     total = get_total_tickets(tickets)
     lines.append(f"{name} — Total: {total} ficha(s)")
 
-    # detalhamento simples (cada linha)
-    # usa chaves legíveis do tickets (tag/manual/roles)
-    detail_lines = format_tickets_list(tickets, None) if False else []  # placeholder se precisar do guild
-    # se quiser detalhar cargos por id, caller pode substituir por versión com guild
-    # aqui apenas inclui separador se houver detalhes externos
+    # adiciona detalhamento compacto (uma linha por tipo)
+    detail_lines = format_tickets_list(tickets, guild)
+    # anexa cada detalhe em uma linha subsequente (sem linhas em branco)
+    for dl in detail_lines:
+        lines.append(f"  {dl}")
+
     return lines
