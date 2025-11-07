@@ -290,9 +290,20 @@ async def on_ready():
     
     try:
         button_msg_id = db.get_button_message_id()
-        if button_msg_id:
-            bot.add_view(InscricaoView(), message_id=button_msg_id)
-            logger.info(f"View do botão re-registrada para message_id: {button_msg_id}")
+        # normaliza para lista (aceita int, str, list)
+        button_ids = []
+        if isinstance(button_msg_id, (list, tuple)):
+            button_ids = list(button_msg_id)
+        elif button_msg_id:
+            button_ids = [button_msg_id]
+        if button_ids:
+            for mid in button_ids:
+                try:
+                    bot.add_view(InscricaoView(), message_id=int(mid))
+                except Exception:
+                    # continua mesmo se algum message_id inválido
+                    continue
+            logger.info(f"View do botão re-registrada para message_id(s): {button_ids}")
     except Exception as e:
         logger.error(f"Erro ao re-registrar view: {e}")
     
@@ -476,7 +487,12 @@ async def setup_inscricao(
         else:
             msg = await canal_botao.send(content=content, view=view)
         
-        db.set_button_message_id(msg.id)
+        # tenta usar API de DB que adiciona message_id a uma lista (se disponível)
+        try:
+            db.add_button_message_id(msg.id)
+        except Exception:
+            # fallback retrocompatível (mantém última mensagem)
+            db.set_button_message_id(msg.id)
         bot.add_view(view, message_id=msg.id)
         
         await interaction.followup.send(
@@ -968,18 +984,23 @@ async def limpar(interaction: discord.Interaction):
                 # se DB não implementar, apenas continua e notifica
                 pass
 
-            # tenta editar a mensagem do botão original (procurando entre canais do guild)
+            # tenta editar todas as mensagens do botão (suporta ID único ou lista)
             button_msg_id = db.get_button_message_id()
+            button_ids = []
+            if isinstance(button_msg_id, (list, tuple)):
+                button_ids = list(button_msg_id)
+            elif button_msg_id:
+                button_ids = [button_msg_id]
+
             edited = False
-            if button_msg_id:
+            for bid in button_ids:
                 for ch in inter.guild.text_channels:
                     try:
-                        msg = await ch.fetch_message(button_msg_id)
+                        msg = await ch.fetch_message(int(bid))
                         # substitui view por uma view com botão desativado
                         try:
                             await msg.edit(content="❌ INSCRIÇÕES ENCERRADAS", view=make_closed_view())
                         except Exception:
-                            # fallback: apenas editar conteúdo
                             await msg.edit(content="❌ INSCRIÇÕES ENCERRADAS")
                         edited = True
                         break
