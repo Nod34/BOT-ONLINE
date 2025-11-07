@@ -155,6 +155,7 @@ class InscricaoModal(discord.ui.Modal, title="Inscrição no Sorteio"):
             msg_content = f"{member.mention}\n{first_name} {last_name}\n{required_hashtag}"
             
             msg = await inscricao_channel.send(msg_content)
+            await msg.add_reaction("✅")  # Adiciona reação de verificado
             
             db.add_participant(
                 interaction.user.id,
@@ -707,121 +708,6 @@ async def lista(interaction: discord.Interaction, tipo: Literal["simples", "com_
 @app_commands.describe(tipo="Tipo de exportação")
 async def exportar(interaction: discord.Interaction, tipo: Literal["simples", "com_fichas"]):
     participants = db.get_all_participants()
-
-
-@bot.tree.command(name="testar_tag", description="[ADMIN] Testa se a TAG está sendo detectada em um usuário")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(usuario="Usuário para testar (opcional, você se não especificar)")
-async def testar_tag(interaction: discord.Interaction, usuario: Optional[discord.User] = None):
-    tag_config = db.get_tag()
-    
-    if not tag_config["enabled"] or not tag_config["text"]:
-        await interaction.response.send_message(
-            "❌ A TAG não está configurada ou não está ativada!\nUse `/tag acao:on texto:SUATAG quantidade:1`",
-            ephemeral=True
-        )
-        return
-    
-    # Define o usuário a ser testado
-    target_user = usuario or interaction.user
-    member = target_user
-    
-    if isinstance(member, discord.User):
-        member = interaction.guild.get_member(target_user.id)
-    
-    if not member:
-        await interaction.response.send_message(
-            "❌ Usuário não encontrado no servidor!",
-            ephemeral=True
-        )
-        return
-    
-    # Testa a detecção
-    tag_search = tag_config["text"].strip().lower()
-    
-    embed = discord.Embed(
-        title=f"🔍 Teste de Detecção de TAG",
-        description=f"**Usuário**: {member.mention}\n**TAG procurada**: `{tag_config['text']}`",
-        color=discord.Color.blue()
-    )
-    
-    checks = [
-        ("Nome Visual (display_name)", member.display_name, "Principal campo usado pelo Discord moderno"),
-        ("Apelido do Servidor (nick)", member.nick, "Apelido definido pelo servidor"),
-        ("Nome Global (global_name)", member.global_name, "Nome global do Discord"),
-        ("Nome de Usuário (name)", member.name, "Username do Discord (@username)")
-    ]
-    
-    fields_with_tag = []
-    has_tag = False
-    found_in = None
-    
-    for field_name, field_value, description in checks:
-        if field_value:
-            normalized = field_value.strip().lower()
-            contains = tag_search in normalized
-            
-            status = "✅" if contains else "❌"
-            fields_with_tag.append(
-                f"{status} **{field_name}**\n"
-                f"  └ Valor: `{field_value}`\n"
-                f"  └ {description}"
-            )
-            
-            if contains and not has_tag:
-                has_tag = True
-                found_in = field_name
-        else:
-            fields_with_tag.append(
-                f"⚪ **{field_name}**\n"
-                f"  └ Valor: [não definido]\n"
-                f"  └ {description}"
-            )
-    
-    embed.add_field(
-        name="📋 Verificação em todos os campos",
-        value="\n\n".join(fields_with_tag),
-        inline=False
-    )
-    
-    # Resultado final
-    if has_tag:
-        result = f"✅ **TAG DETECTADA!**\n\n"
-        result += f"A TAG `{tag_config['text']}` foi encontrada em: **{found_in}**\n\n"
-        result += f"O usuário **receberá +{tag_config['quantity']} ficha(s) extra(s)** da TAG!"
-        embed.color = discord.Color.green()
-    else:
-        result = f"❌ **TAG NÃO DETECTADA!**\n\n"
-        result += f"A TAG `{tag_config['text']}` não foi encontrada em nenhum campo do usuário.\n\n"
-        result += f"**Dica**: O usuário precisa ter a TAG `{tag_config['text']}` no nome visual, apelido do servidor, nome global ou nome de usuário."
-        embed.color = discord.Color.red()
-    
-    embed.add_field(
-        name="🎯 Resultado Final",
-        value=result,
-        inline=False
-    )
-    
-    # Calcula as fichas totais que o usuário teria
-    bonus_roles = db.get_bonus_roles()
-    tickets = utils.calculate_tickets(
-        member,
-        bonus_roles,
-        tag_config["enabled"],
-        tag_config["text"],
-        tag_config["quantity"]
-    )
-    
-    total = utils.get_total_tickets(tickets)
-    
-    embed.add_field(
-        name="🎫 Total de Fichas (simulação)",
-        value=f"Base: 1 | Cargos: {sum(r['quantity'] for r in tickets.get('roles', {}).values())} | TAG: {tickets['tag']} | **Total: {total}**",
-        inline=False
-    )
-    
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
     
     if not participants:
         await interaction.response.send_message(
@@ -831,29 +717,37 @@ async def testar_tag(interaction: discord.Interaction, usuario: Optional[discord
         return
     
     await interaction.response.defer(ephemeral=True)
-    
     lines = []
     
     if tipo == "simples":
+        # Cria lista de nomes e ordena alfabeticamente
+        names = []
         for user_id, data in participants.items():
-            name = utils.format_simple_entry(data["first_name"], data["last_name"])
-            lines.append(name)
+            name = f"{data['first_name']} {data['last_name']}"
+            names.append(name)
+        names.sort()  # Ordena alfabeticamente
+        
+        lines.append("📋 Lista de Participantes (Simples)\n")
+        for i, name in enumerate(names, 1):
+            lines.append(f"{i}. {name}")
     else:
+        lines.append("📋 Lista de Participantes (Com Fichas)\n")
         for user_id, data in participants.items():
-            entries = utils.format_detailed_entry(
-                data["first_name"],
-                data["last_name"],
-                data["tickets"]
-            )
-            lines.extend(entries)
+            total = utils.get_total_tickets(data["tickets"])
+            name = f"{data['first_name']} {data['last_name']}"
+            tickets_detail = utils.format_tickets_list(data["tickets"], interaction.guild)
+            lines.append(f"• {name} - Total: {total} fichas")
+            lines.extend(f"  {detail}" for detail in tickets_detail)
     
+    content = "\n".join(lines)
+    
+    # Salva em arquivo
     filename = f"participantes_{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    
     with open(filename, 'w', encoding='utf-8') as f:
-        f.write("\n".join(lines))
+        f.write(content)
     
     await interaction.followup.send(
-        f"✅ Exportação concluída! Total: {len(participants)} participante(s)",
+        f"✅ Lista exportada! Total: {len(participants)} participante(s)",
         file=discord.File(filename),
         ephemeral=True
     )
@@ -1367,6 +1261,12 @@ async def tag_manual(
         participant = db.get_participant(usuario.id)
         total_tickets = utils.get_total_tickets(participant["tickets"])
         
+        # Adiciona/atualiza a TAG manual
+        db.update_tickets(usuario.id, {
+            **participant["tickets"],
+            "manual_tag": quantidade  # Adiciona/atualiza a TAG manual
+        })
+        
         await interaction.response.send_message(
             f"✅ TAG manual concedida!\n"
             f"**Usuário**: {usuario.mention}\n"
@@ -1405,6 +1305,44 @@ async def sync(interaction: discord.Interaction, guild_id: Optional[str] = None)
             f"❌ Erro ao sincronizar: {str(e)}",
             ephemeral=True
         )
+
+def format_tickets_list(tickets: dict, guild: discord.Guild) -> list:
+    lines = []
+    
+    # Ficha base
+    lines.append("• 1 ficha base")
+    
+    # Fichas de cargos
+    if "roles" in tickets and tickets["roles"]:
+        for role_id, info in tickets["roles"].items():
+            role = guild.get_role(int(role_id))
+            role_name = role.name if role else "Cargo Desconhecido"
+            lines.append(f"• +{info['quantity']} ficha(s) do cargo {role_name} ({info['abbreviation']})")
+    
+    # TAG automática
+    if tickets.get("tag", 0) > 0:
+        lines.append(f"• +{tickets['tag']} ficha(s) da TAG")
+    
+    # TAG manual (novo)
+    if tickets.get("manual_tag", 0) > 0:
+        lines.append(f"• +{tickets['manual_tag']} ficha(s) da TAG manual")
+    
+    return lines
+
+def get_total_tickets(tickets: dict) -> int:
+    total = 1  # ficha base
+    
+    # Soma fichas de cargos
+    if "roles" in tickets:
+        total += sum(role["quantity"] for role in tickets["roles"].values())
+    
+    # Soma TAG automática
+    total += tickets.get("tag", 0)
+    
+    # Soma TAG manual (novo)
+    total += tickets.get("manual_tag", 0)
+    
+    return total
 
 if __name__ == "__main__":
     # carrega variáveis de ambiente (já usa load_dotenv no topo)
