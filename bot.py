@@ -365,8 +365,18 @@ async def verificar(interaction: discord.Interaction):
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-@bot.tree.command(name="setup_inscricao", description="[ADMIN] Configura o sistema de inscrições")
-@app_commands.default_prmissions(administrator=True)
+# antigo (causa do erro)
+# @bot.tree.command(name="setup_inscricao", description="[ADMIN] Configura o sistema de inscrições")
+# @app_commands.default_prmissions(administrator=True)
+# @app_commands.describe(...)
+
+# novo — movendo a permissão para o decorator do comando
+@bot.tree.command(
+    name="setup_inscricao",
+    description="[ADMIN] Configura o sistema de inscrições",
+    default_member_permissions=discord.Permissions(administrator=True)
+)
+@app_commands.guild_only()
 @app_commands.describe(
     canal_botao="Canal onde será enviado o botão de inscrição",
     canal_inscricoes="Canal onde serão postadas as inscrições",
