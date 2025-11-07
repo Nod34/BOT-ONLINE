@@ -267,20 +267,12 @@ async def on_ready():
     try:
         button_msg_id = db.get_button_message_id()
         if button_msg_id:
-            # re-registramos a view padrão (se quiser controlar show_verify ao re-registrar,
-            # você precisaria salvar a flag verificar_botao no DB junto com button_msg_id)
             bot.add_view(InscricaoView(), message_id=button_msg_id)
             logger.info(f"View do botão re-registrada para message_id: {button_msg_id}")
     except Exception as e:
         logger.error(f"Erro ao re-registrar view: {e}")
     
-    try:
-        synced = await bot.tree.sync()
-        logger.info(f"Sincronizados {len(synced)} comandos")
-    except Exception as e:
-        logger.error(f"Erro ao sincronizar comandos: {e}")
-
-    # tenta definir default_member_permissions para comandos administrativos se a versão suportar
+    # ---- MOVEI AQUI a tentativa de definir default_member_permissions ANTES do sync ----
     try:
         admin_cmds = [
             "setup_inscricao","hashtag","tag","fichas","tirar","lista","exportar",
@@ -292,7 +284,6 @@ async def on_ready():
             try:
                 cmd = bot.tree.get_command(name)
             except Exception:
-                # fallback: procurar manualmente
                 for c in bot.tree.commands:
                     if c.name == name:
                         cmd = c
@@ -300,8 +291,14 @@ async def on_ready():
             if cmd and hasattr(cmd, "default_member_permissions"):
                 cmd.default_member_permissions = discord.Permissions(administrator=True)
     except Exception:
-        # não crítico — se a lib não suportar, seguimos com checagem manual
         pass
+    # ---- fim da movimentação ----
+
+    try:
+        synced = await bot.tree.sync()
+        logger.info(f"Sincronizados {len(synced)} comandos")
+    except Exception as e:
+        logger.error(f"Erro ao sincronizar comandos: {e}")
 
 @bot.event
 async def on_message(message):
@@ -411,6 +408,7 @@ async def verificar(interaction: discord.Interaction):
     description="[ADMIN] Configura o sistema de inscrições"
 )
 @app_commands.guild_only()
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     canal_botao="Canal onde será enviado o botão de inscrição",
     canal_inscricoes="Canal onde serão postadas as inscrições",
