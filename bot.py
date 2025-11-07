@@ -679,12 +679,15 @@ async def lista(interaction: discord.Interaction, tipo: Literal["simples", "com_
     
     if tipo == "simples":
         lines.append("📋 **Lista de Participantes (Simples)**\n")
-        for i, (user_id, data) in enumerate(participants.items(), 1):
-            name = utils.format_simple_entry(data["first_name"], data["last_name"])
+        # monta lista de nomes e ordena alfabeticamente
+        names = [f"{data['first_name']} {data['last_name']}" for _, data in participants.items()]
+        names.sort(key=lambda s: s.lower())
+        for i, name in enumerate(names, 1):
             lines.append(f"{i}. {name}")
     
     else:
         lines.append("📋 **Lista de Participantes (Com Fichas)**\n")
+        # não colocar linha em branco entre participantes
         for user_id, data in participants.items():
             entries = utils.format_detailed_entry(
                 data["first_name"],
@@ -692,7 +695,7 @@ async def lista(interaction: discord.Interaction, tipo: Literal["simples", "com_
                 data["tickets"]
             )
             lines.extend(entries)
-            lines.append("")
+            # removido: lines.append("")
     
     content = "\n".join(lines)
     
@@ -720,24 +723,23 @@ async def exportar(interaction: discord.Interaction, tipo: Literal["simples", "c
     lines = []
     
     if tipo == "simples":
-        # Cria lista de nomes e ordena alfabeticamente
-        names = []
-        for user_id, data in participants.items():
-            name = f"{data['first_name']} {data['last_name']}"
-            names.append(name)
-        names.sort()  # Ordena alfabeticamente
+        # Cria lista de nomes e ordena alfabeticamente (igual ao /lista simples)
+        names = [f"{data['first_name']} {data['last_name']}" for _, data in participants.items()]
+        names.sort(key=lambda s: s.lower())
         
         lines.append("📋 Lista de Participantes (Simples)\n")
         for i, name in enumerate(names, 1):
             lines.append(f"{i}. {name}")
     else:
         lines.append("📋 Lista de Participantes (Com Fichas)\n")
+        # monta a mesma estrutura do /lista com_fichas (sem linhas em branco entre participantes)
         for user_id, data in participants.items():
-            total = utils.get_total_tickets(data["tickets"])
-            name = f"{data['first_name']} {data['last_name']}"
-            tickets_detail = utils.format_tickets_list(data["tickets"], interaction.guild)
-            lines.append(f"• {name} - Total: {total} fichas")
-            lines.extend(f"  {detail}" for detail in tickets_detail)
+            entries = utils.format_detailed_entry(
+                data["first_name"],
+                data["last_name"],
+                data["tickets"]
+            )
+            lines.extend(entries)
     
     content = "\n".join(lines)
     
@@ -1070,7 +1072,7 @@ async def chat(
                 ephemeral=True
             )
             return
-        
+
         db.set_chat_lock(True, canal.id)
         await interaction.response.send_message(
             f"🔒 Chat bloqueado em {canal.mention}!\n"
@@ -1247,25 +1249,27 @@ async def tag_manual(
     
     # Define a TAG manual
     if quantidade == 0:
-        # Remove a TAG manual
+        # Remove a TAG manual no DB e atualiza tickets armazenados
         db.remove_manual_tag(usuario.id)
+        participant = db.get_participant(usuario.id)
+        if participant:
+            new_tickets = {k: v for k, v in participant["tickets"].items() if k != "manual_tag"}
+            db.update_tickets(usuario.id, new_tickets)
         await interaction.response.send_message(
             f"✅ TAG manual removida de {usuario.mention}!",
             ephemeral=True
         )
         logger.info(f"TAG manual removida de {usuario} por {interaction.user}")
     else:
+        # Primeiro persiste a TAG manual específica
         db.set_manual_tag(usuario.id, quantidade)
+        # Recupera os dados atualizados do participante
+        participant = db.get_participant(usuario.id) or {"tickets": {}}
+        # Garante que os tickets atualizados incluam a manual_tag
+        new_tickets = {**participant.get("tickets", {}), "manual_tag": quantidade}
+        db.update_tickets(usuario.id, new_tickets)
         
-        # Obtém os dados atualizados
-        participant = db.get_participant(usuario.id)
-        total_tickets = utils.get_total_tickets(participant["tickets"])
-        
-        # Adiciona/atualiza a TAG manual
-        db.update_tickets(usuario.id, {
-            **participant["tickets"],
-            "manual_tag": quantidade  # Adiciona/atualiza a TAG manual
-        })
+        total_tickets = utils.get_total_tickets(new_tickets)
         
         await interaction.response.send_message(
             f"✅ TAG manual concedida!\n"
