@@ -190,3 +190,31 @@ def format_detailed_entry(first_name: str, last_name: str, tickets: Dict[str, An
         lines.append(f"{name} TAG")
 
     return lines
+
+def validate_full_name(first_name: str, last_name: str) -> tuple:
+    """
+    Valida primeiro e último nome inseridos no modal.
+    Retorna (True, "") se válido ou (False, "mensagem de erro") se inválido.
+    Regras:
+      - não vazios
+      - pelo menos 2 caracteres cada
+      - sem dígitos
+      - comprimento total razoável (<= 100)
+    """
+    if not first_name or not last_name:
+        return False, "❌ Primeiro nome e sobrenome são obrigatórios."
+    fn = first_name.strip()
+    ln = last_name.strip()
+    if len(fn) < 2 or len(ln) < 2:
+        return False, "❌ Nome e sobrenome devem ter ao menos 2 caracteres."
+    if len(fn) + len(ln) > 100:
+        return False, "❌ Nome muito longo."
+    for ch in fn + ln:
+        if ch.isdigit():
+            return False, "❌ Nomes não podem conter números."
+    # opcional: outros caracteres permitidos: letras, espaços, - . '
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZáàâãäéèêëíìîïóòôõöúùûüçÇÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜ-' .")
+    for ch in fn + ln:
+        if ch not in allowed and not ch.isspace():
+            return False, "❌ Caractere inválido no nome."
+    return True, ""
