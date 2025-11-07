@@ -151,18 +151,42 @@ def format_tickets_list(tickets: Optional[Dict[str, Any]], guild: Optional[disco
 def format_detailed_entry(first_name: str, last_name: str, tickets: Dict[str, Any], guild: Optional[discord.Guild] = None) -> List[str]:
     """
     Formata uma entrada detalhada usada em /lista com_fichas e /exportar com_fichas.
+    Gera:
+      Nome Completo
+      Nome Completo <SUFIXO_DO_CARGO_1>
+      Nome Completo TAG
+      ...
     Não adiciona linhas em branco entre participantes.
-    Se guild for fornecido, detalha nomes de cargos; caso contrário usa ids.
     """
     lines: List[str] = []
     name = f"{first_name} {last_name}".strip()
-    total = get_total_tickets(tickets)
-    lines.append(f"{name} — Total: {total} ficha(s)")
+    # linha base (sempre)
+    lines.append(name)
 
-    # adiciona detalhamento compacto (uma linha por tipo)
-    detail_lines = format_tickets_list(tickets, guild)
-    # anexa cada detalhe em uma linha subsequente (sem linhas em branco)
-    for dl in detail_lines:
-        lines.append(f"  {dl}")
+    # cargos: uma linha por cargo (usa abreviação se existir, senão nome do cargo quando guild for fornecido)
+    roles = tickets.get("roles", {}) if tickets else {}
+    for rid, info in roles.items():
+        abbr = (info.get("abbreviation") or "").strip()
+        suffix = abbr if abbr else None
+        if not suffix:
+            if guild:
+                try:
+                    role_obj = guild.get_role(int(rid))
+                    suffix = role_obj.name if role_obj else f"Cargo_{rid}"
+                except Exception:
+                    suffix = f"Cargo_{rid}"
+            else:
+                suffix = f"Cargo_{rid}"
+        lines.append(f"{name} {suffix}")
+
+    # TAG automática (aparece como uma linha separada)
+    if tickets and int(tickets.get("tag", 0)) > 0:
+        lines.append(f"{name} TAG")
+
+    # TAG manual (também aparece como linha separada)
+    if tickets and int(tickets.get("manual_tag", 0)) > 0:
+        # se já existe TAG automática e você não quer duplicar, remova a checagem abaixo
+        # aqui adicionamos sempre que manual_tag estiver presente
+        lines.append(f"{name} TAG")
 
     return lines
