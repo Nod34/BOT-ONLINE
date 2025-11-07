@@ -110,10 +110,6 @@ def get_total_tickets(tickets: Optional[Dict[str, Any]]) -> int:
     return max(1, total)
 
 def format_tickets_list(tickets: Optional[Dict[str, Any]], guild: Optional[discord.Guild]) -> List[str]:
-    """
-    Retorna lista de linhas descrevendo as fichas (para embed).
-    guild pode ser None — neste caso nomes dos cargos ficam com o id.
-    """
     lines: List[str] = []
     if not tickets:
         lines.append("• Ficha base: 1")
@@ -141,10 +137,10 @@ def format_tickets_list(tickets: Optional[Dict[str, Any]], guild: Optional[disco
     if tag_amount:
         lines.append(f"• Fichas da TAG: {tag_amount}")
 
-    # TAG manual
+    # TAG manual (agora exibe como TAG normal)
     manual = tickets.get("manual_tag", 0)
     if manual:
-        lines.append(f"• TAG manual: {manual}")
+        lines.append(f"• Fichas da TAG: {manual}")
 
     return lines
 
