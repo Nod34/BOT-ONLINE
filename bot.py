@@ -917,12 +917,26 @@ async def limpar(interaction: discord.Interaction):
             super().__init__(timeout=60)
             self.value = None
             self.message = None
-        
+            self.closed = False  # flag para evitar dupla execução
+
+        async def safe_delete_message(self):
+            """Tenta deletar a mensagem de forma segura"""
+            if not self.closed and self.message:
+                try:
+                    await self.message.delete()
+                except Exception:
+                    pass
+            self.closed = True
+            self.stop()
+
         @discord.ui.button(label="Limpar Inscrições", style=discord.ButtonStyle.danger)
         async def confirm_participants(self, inter: discord.Interaction, button: discord.ui.Button):
-            participants = db.get_all_participants()
+            if self.closed:
+                return
             
+            participants = db.get_all_participants()
             deleted_count = 0
+            
             for user_id, data in participants.items():
                 if data.get("message_id"):
                     try:
@@ -936,25 +950,23 @@ async def limpar(interaction: discord.Interaction):
             
             db.clear_participants()
             
-            # Deletar mensagem de confirmação
-            try:
-                await self.message.delete()
-            except:
-                pass
-            
             await inter.response.send_message(
                 f"✅ Inscrições limpas!\n"
                 f"**Participantes removidos**: {len(participants)}\n"
                 f"**Mensagens deletadas**: {deleted_count}",
                 ephemeral=True
             )
-            self.stop()
-        
+            
+            await self.safe_delete_message()
+
         @discord.ui.button(label="Limpar Tudo", style=discord.ButtonStyle.danger)
         async def confirm_all(self, inter: discord.Interaction, button: discord.ui.Button):
-            participants = db.get_all_participants()
+            if self.closed:
+                return
             
+            participants = db.get_all_participants()
             deleted_count = 0
+            
             for user_id, data in participants.items():
                 if data.get("message_id"):
                     try:
@@ -968,29 +980,24 @@ async def limpar(interaction: discord.Interaction):
             
             db.clear_all()
             
-            # Deletar mensagem de confirmação
-            try:
-                await self.message.delete()
-            except:
-                pass
-            
             await inter.response.send_message(
                 f"✅ Tudo limpo! Sistema resetado.\n"
                 f"**Mensagens deletadas**: {deleted_count}",
                 ephemeral=True
             )
-            self.stop()
+            
+            await self.safe_delete_message()
 
         @discord.ui.button(label="Encerrar Inscrições", style=discord.ButtonStyle.secondary)
         async def end_inscricoes(self, inter: discord.Interaction, button: discord.ui.Button):
-            # marca encerrado no DB
+            if self.closed:
+                return
+                
             try:
                 db.set_inscricoes_closed(True)
             except Exception:
-                # se DB não implementar, apenas continua e notifica
                 pass
 
-            # tenta editar todas as mensagens do botão (suporta ID único ou lista)
             button_msg_id = db.get_button_message_id()
             button_ids = []
             if isinstance(button_msg_id, (list, tuple)):
@@ -1003,38 +1010,30 @@ async def limpar(interaction: discord.Interaction):
                 for ch in inter.guild.text_channels:
                     try:
                         msg = await ch.fetch_message(int(bid))
-                        # substitui view por uma view com botão desativado
                         try:
                             await msg.edit(content="❌ INSCRIÇÕES ENCERRADAS", view=make_closed_view())
                         except Exception:
                             await msg.edit(content="❌ INSCRIÇÕES ENCERRADAS")
                         edited = True
-                        break
-                    except discord.NotFound:
-                        continue
-                    except Exception:
+                    except:
                         continue
 
-            # enviar resposta ao executor
             await inter.response.send_message(
                 f"✅ Inscrições encerradas!\n"
-                f"{'Mensagem do botão atualizada.' if edited else 'Não foi possível encontrar/editar a mensagem do botão.'}",
+                f"{'Mensagens dos botões atualizadas.' if edited else 'Não foi possível encontrar/editar as mensagens dos botões.'}",
                 ephemeral=True
             )
 
             logger.info(f"Inscrições encerradas por {inter.user} (edited_button={edited})")
-            self.stop()
-        
+            await self.safe_delete_message()
+
         @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary)
         async def cancel(self, inter: discord.Interaction, button: discord.ui.Button):
-            # Deletar mensagem de confirmação
-            try:
-                await self.message.delete()
-            except:
-                pass
+            if self.closed:
+                return
             
             await inter.response.send_message("❌ Operação cancelada.", ephemeral=True)
-            self.stop()
+            await self.safe_delete_message()
     
     view = ConfirmView()
     msg = await interaction.response.send_message(
