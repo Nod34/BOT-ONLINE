@@ -1,366 +1,157 @@
 import re
-from typing import Dict, List, Any, Optional
 import discord
-import logging
+from typing import Dict, Any, List, Optional
 
-logger = logging.getLogger(__name__)
+def _clean_text(s: Optional[str]) -> str:
+    if not s:
+        return ""
+    # remove emojis/caracteres especiais mantendo letras/números/espacos
+    return re.sub(r'[^\w\s]', '', s).strip().casefold()
 
-def validate_name(name: str, field_name: str = "Nome") -> tuple[bool, Optional[str]]:
+def calculate_tickets(
+    member: discord.abc.User, 
+    bonus_roles: Dict[str, Any],
+    tag_enabled: bool,
+    tag_text: Optional[str],
+    tag_quantity: int
+) -> Dict[str, Any]:
     """
-    Valida um nome (primeiro nome ou sobrenome).
-    
-    Regras:
-    - Sem números
-    - Sem caracteres especiais (exceto espaços, hífens e apóstrofos)
-    - Mínimo 2 caracteres
-    - Apenas letras
-    
-    Args:
-        name: Nome a ser validado
-        field_name: Nome do campo (para mensagens de erro)
-        
-    Returns:
-        Tupla (válido: bool, mensagem_erro: Optional[str])
+    Calcula o dicionário de 'tickets' para um membro.
+    - bonus_roles: dict do DB com keys = role_id (str) -> {quantity, abbreviation}
+    - Detecta TAGs tanto em nomes (nick/display/global/name) quanto em roles (role.name).
+    - não inclui 'manual_tag' (essa é aplicada separadamente via DB/tag_manual)
     """
-    if not name or len(name.strip()) < 2:
-        return False, f"❌ {field_name} deve ter pelo menos 2 caracteres."
-    
-    # Verificar números
-    if any(char.isdigit() for char in name):
-        return False, f"❌ {field_name} não pode conter números."
-    
-    # Verificar caracteres especiais inválidos
-    allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZáàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ '-")
-    if not all(char in allowed_chars for char in name):
-        return False, f"❌ {field_name} contém caracteres inválidos. Use apenas letras."
-    
-    # Verificar se tem pelo menos uma letra
-    if not any(char.isalpha() for char in name):
-        return False, f"❌ {field_name} deve conter pelo menos uma letra."
-    
-    # Verificar partes do nome
-    parts = name.strip().split()
-    for part in parts:
-        # Remover hífens e apóstrofos para validação
-        clean_part = part.replace("-", "").replace("'", "")
-        if len(clean_part) < 2:
-            return False, f"❌ Cada parte do {field_name.lower()} deve ter pelo menos 2 letras."
-    
-    return True, None
+    tickets: Dict[str, Any] = {}
+    tickets["base"] = 1
 
-def validate_full_name(first_name: str, last_name: str) -> tuple[bool, Optional[str]]:
-    """
-    Valida nome completo (primeiro nome + sobrenome).
-    
-    Args:
-        first_name: Primeiro nome
-        last_name: Sobrenome
-        
-    Returns:
-        Tupla (válido: bool, mensagem_erro: Optional[str])
-    """
-    valid_first, error_first = validate_name(first_name, "Primeiro nome")
-    if not valid_first:
-        return False, error_first
-    
-    valid_last, error_last = validate_name(last_name, "Sobrenome")
-    if not valid_last:
-        return False, error_last
-    
-    return True, None
+    # roles -> armazena por id string com quantity e abbreviation
+    roles_dict: Dict[str, Dict[str, Any]] = {}
+    try:
+        member_roles = getattr(member, "roles", []) or []
+        for r in member_roles:
+            rid = str(r.id)
+            if str(r.id) in bonus_roles or rid in bonus_roles:
+                entry = bonus_roles.get(rid) or bonus_roles.get(str(r.id))
+                if entry:
+                    roles_dict[rid] = {
+                        "quantity": int(entry.get("quantity", 0)),
+                        "abbreviation": entry.get("abbreviation", "")
+                    }
+    except Exception:
+        # membro pode ser discord.User (sem roles) — ignora
+        member_roles = []
 
-def calculate_tickets(member: discord.Member, bonus_roles: Dict[str, Any], 
-                     tag_enabled: bool, server_tag: Optional[str], 
-                     tag_quantity: int) -> Dict[str, Any]:
-    """
-    Calcula as fichas de um participante.
-    
-    Estrutura de retorno:
-    {
-        'base': 1,
-        'roles': {
-            'role_id': {
-                'quantity': n,
-                'abbreviation': 'AB'
-            }
-        },
-        'tag': n
-    }
-    
-    Args:
-        member: Membro do Discord
-        bonus_roles: Dict com cargos bônus configurados
-        tag_enabled: Se a tag do servidor está habilitada
-        server_tag: Texto da tag do servidor
-        tag_quantity: Quantidade de fichas da tag
-        
-    Returns:
-        Dict com estrutura de fichas
-    """
-    tickets = {
-        "base": 1,
-        "roles": {},
-        "tag": 0
-    }
-    
-    member_role_ids = [str(role.id) for role in member.roles]
-    
-    for role_id, role_data in bonus_roles.items():
-        if role_id in member_role_ids:
-            tickets["roles"][role_id] = {
-                "quantity": role_data["quantity"],
-                "abbreviation": role_data["abbreviation"]
-            }
-    
-    if tag_enabled and server_tag:
-        # Prepara a tag para busca (remove espaços e normaliza)
-        tag_search_original = server_tag.strip().lower()
-        
-        # Cria variações da TAG (com e sem emojis)
-        # Remove emojis/caracteres especiais para criar versão "limpa"
-        import re
-        # Remove emojis e caracteres especiais, mantendo apenas letras/números
-        tag_search_clean = re.sub(r'[^\w\s]', '', tag_search_original).strip()
-        
-        # Lista de variações para buscar
-        tag_variations = [tag_search_original]
-        if tag_search_clean and tag_search_clean != tag_search_original:
-            tag_variations.append(tag_search_clean)
-        
-        # Lista TODOS os campos possíveis onde a TAG pode aparecer
-        names_to_check = [
-            ("display_name", member.display_name),      # Nome visual (principal no Discord moderno)
-            ("nick", member.nick),                      # Apelido do servidor (Server Nickname)
-            ("global_name", member.global_name),        # Nome global do Discord
-            ("name", member.name),                      # Nome de usuário (@username)
-        ]
-        
-        # Log detalhado para debug
-        logger.info(f"╔══════════════════════════════════════════════════════════")
-        logger.info(f"║ TAG CHECK - Iniciando verificação")
-        logger.info(f"║ Usuário: {member.name} (ID: {member.id})")
-        logger.info(f"║ TAG configurada: '{server_tag}'")
-        logger.info(f"║ Buscando variações: {tag_variations}")
-        logger.info(f"║ Quantidade de fichas: {tag_quantity}")
-        logger.info(f"╠══════════════════════════════════════════════════════════")
-        
-        tag_found = False
-        found_variation = None
-        
-        # Verifica em cada campo
-        for field_name, field_value in names_to_check:
-            if field_value is None:
-                logger.info(f"║ {field_name}: [NULL]")
+    if roles_dict:
+        tickets["roles"] = roles_dict
+
+    # Detecção da TAG automática em vários campos do membro
+    found = False
+    if tag_enabled and tag_text:
+        tag_search = tag_text.strip()
+        tag_clean = _clean_text(tag_search)
+
+        # 1) checa nomes (display_name, nick, global_name, name)
+        checks = []
+        if hasattr(member, "display_name"):
+            checks.append(getattr(member, "display_name", "") or "")
+        if hasattr(member, "nick"):
+            checks.append(getattr(member, "nick", "") or "")
+        if hasattr(member, "global_name"):
+            checks.append(getattr(member, "global_name", "") or "")
+        checks.append(getattr(member, "name", "") or "")
+
+        for field in checks:
+            if not field:
                 continue
-            
-            # Normaliza o campo
-            field_normalized = field_value.strip().lower()
-            
-            # Testa todas as variações
-            contains_tag = False
-            for variation in tag_variations:
-                if variation in field_normalized:
-                    contains_tag = True
-                    found_variation = variation
-                    break
-            
-            logger.info(f"║ {field_name}: '{field_value}'")
-            logger.info(f"║   → Normalizado: '{field_normalized}'")
-            logger.info(f"║   → TAG encontrada? {'✅ SIM' if contains_tag else '❌ NÃO'}")
-            if contains_tag:
-                logger.info(f"║   → Variação detectada: '{found_variation}'")
-            
-            if contains_tag:
-                tickets["tag"] = tag_quantity
-                tag_found = True
-                logger.info(f"║ ✅ TAG ENCONTRADA em '{field_name}' (variação: '{found_variation}')!")
-                logger.info(f"║ ✅ +{tag_quantity} ficha(s) concedida(s)!")
+            f_raw = field.strip().casefold()
+            f_clean = _clean_text(field)
+            if tag_search.casefold() in f_raw or (tag_clean and tag_clean in f_clean):
+                found = True
                 break
-        
-        if not tag_found:
-            logger.info(f"║ ❌ TAG NÃO ENCONTRADA em nenhum campo")
-            logger.info(f"║ 💡 Aceita qualquer variação: {tag_variations}")
-        
-        logger.info(f"║ Fichas da TAG concedidas: {tickets['tag']}")
-        logger.info(f"╚══════════════════════════════════════════════════════════")
-    
+
+        # 2) se não achou nos nomes, checa roles (role.name)
+        if not found:
+            try:
+                for r in member_roles:
+                    rn = (r.name or "").strip()
+                    if not rn:
+                        continue
+                    # compara exatidão ou substring, case-insensitive
+                    if tag_search.casefold() == rn.casefold() or tag_search.casefold() in rn.casefold():
+                        found = True
+                        break
+            except Exception:
+                pass
+
+        if found:
+            tickets["tag"] = int(tag_quantity or 1)
+
     return tickets
 
-def get_total_tickets(tickets_dict: Dict[str, Any]) -> int:
-    """
-    Soma o total de fichas de um dicionário de tickets.
-    
-    Args:
-        tickets_dict: Dicionário com estrutura de fichas
-        
-    Returns:
-        Total de fichas
-    """
-    total = tickets_dict.get("base", 1)
-    
-    if "roles" in tickets_dict:
-        for role_data in tickets_dict["roles"].values():
-            total += role_data.get("quantity", 0)
-    
-    total += tickets_dict.get("tag", 0)
-    
-    return total
+def get_total_tickets(tickets: Optional[Dict[str, Any]]) -> int:
+    if not tickets:
+        return 1
+    total = int(tickets.get("base", 1))
+    # roles
+    for role_info in tickets.get("roles", {}).values():
+        try:
+            total += int(role_info.get("quantity", 0))
+        except Exception:
+            pass
+    # tag automatic
+    total += int(tickets.get("tag", 0))
+    # tag manual (se existir)
+    total += int(tickets.get("manual_tag", 0))
+    return max(1, total)
 
-def format_tickets_list(tickets_dict: Dict[str, Any], guild: Optional[discord.Guild] = None) -> List[str]:
+def format_tickets_list(tickets: Optional[Dict[str, Any]], guild: discord.Guild) -> List[str]:
     """
-    Formata a lista de fichas para exibição.
-    
-    Args:
-        tickets_dict: Dicionário com estrutura de fichas
-        guild: Guild do Discord (para obter nomes dos cargos)
-        
-    Returns:
-        Lista de strings formatadas
+    Retorna lista de linhas descrevendo as fichas (para embed).
     """
-    lines = []
-    
-    base = tickets_dict.get("base", 1)
-    lines.append(f"🎫 **Ficha base**: {base}")
-    
-    if "roles" in tickets_dict and tickets_dict["roles"]:
-        lines.append(f"\n**Fichas por cargo**:")
-        for role_id, role_data in tickets_dict["roles"].items():
-            quantity = role_data.get("quantity", 0)
-            abbreviation = role_data.get("abbreviation", "?")
-            
-            role_name = abbreviation
-            if guild:
-                role = guild.get_role(int(role_id))
-                if role:
-                    role_name = f"{role.name} ({abbreviation})"
-            
-            lines.append(f"  • {role_name}: {quantity} ficha(s)")
-    
-    tag_tickets = tickets_dict.get("tag", 0)
-    if tag_tickets > 0:
-        lines.append(f"\n🏷️ **Fichas da TAG**: {tag_tickets}")
-    
+    lines: List[str] = []
+    if not tickets:
+        lines.append("• Ficha base: 1")
+        return lines
+
+    lines.append("• Ficha base: 1")
+
+    # cargos (mantém abreviação se presente)
+    roles = tickets.get("roles", {})
+    for rid, info in roles.items():
+        qty = info.get("quantity", 0)
+        abbr = info.get("abbreviation", "")
+        try:
+            role_obj = guild.get_role(int(rid))
+            role_name = role_obj.name if role_obj else f"Cargo ({rid})"
+        except Exception:
+            role_name = f"Cargo ({rid})"
+        lines.append(f"• {qty} ficha(s) por cargo: {role_name} {f'({abbr})' if abbr else ''}".strip())
+
+    # TAG automática
+    tag_amount = tickets.get("tag", 0)
+    if tag_amount:
+        lines.append(f"• Fichas da TAG: {tag_amount}")
+
+    # TAG manual
+    manual = tickets.get("manual_tag", 0)
+    if manual:
+        lines.append(f"• TAG manual: {manual}")
+
     return lines
 
-def format_detailed_entry(first_name: str, last_name: str, tickets_dict: Dict[str, Any]) -> List[str]:
+def format_detailed_entry(first_name: str, last_name: str, tickets: Dict[str, Any]) -> List[str]:
     """
-    Formata uma entrada detalhada para exportação.
-    
-    Formato:
-    - "PrimeiroNome primeiras2letras." — ficha base
-    - "PrimeiroNome primeiras2letras. AB" — para cada ficha de cargo
-    - "PrimeiroNome primeiras2letras. TAG" — para cada ficha de tag
-    
-    Args:
-        first_name: Primeiro nome
-        last_name: Sobrenome
-        tickets_dict: Dicionário com estrutura de fichas
-        
-    Returns:
-        Lista de strings (uma por ficha)
+    Formata uma entrada detalhada usada em /lista com_fichas e /exportar com_fichas.
+    Não adiciona linhas em branco entre participantes.
     """
-    entries = []
-    
-    # Primeiras 2 letras do sobrenome em minúsculas
-    first_two = last_name[:2].lower() if len(last_name) >= 2 else last_name.lower()
-    base_name = f"{first_name} {first_two}."
-    
-    base = tickets_dict.get("base", 1)
-    for _ in range(base):
-        entries.append(base_name)
-    
-    if "roles" in tickets_dict:
-        for role_data in tickets_dict["roles"].values():
-            quantity = role_data.get("quantity", 0)
-            abbreviation = role_data.get("abbreviation", "?")
-            for _ in range(quantity):
-                entries.append(f"{base_name} {abbreviation}")
-    
-    tag_tickets = tickets_dict.get("tag", 0)
-    for _ in range(tag_tickets):
-        entries.append(f"{base_name} TAG")
-    
-    return entries
+    lines: List[str] = []
+    name = f"{first_name} {last_name}".strip()
+    total = get_total_tickets(tickets)
+    lines.append(f"{name} — Total: {total} ficha(s)")
 
-def format_simple_entry(first_name: str, last_name: str) -> str:
-    """
-    Formata uma entrada simples para exportação.
-    
-    Args:
-        first_name: Primeiro nome
-        last_name: Sobrenome
-        
-    Returns:
-        String formatada: "PrimeiroNome Sobrenome"
-    """
-    return f"{first_name} {last_name}"
-
-def create_embed(title: str, description: str, color: discord.Color = discord.Color.blue()) -> discord.Embed:
-    """
-    Cria um embed Discord.
-    
-    Args:
-        title: Título do embed
-        description: Descrição do embed
-        color: Cor do embed
-        
-    Returns:
-        discord.Embed
-    """
-    embed = discord.Embed(
-        title=title,
-        description=description,
-        color=color
-    )
-    return embed
-
-def parse_color(color_str: str) -> discord.Color:
-    """
-    Converte uma string de cor em discord.Color.
-    
-    Args:
-        color_str: String da cor (hex, nome, etc)
-        
-    Returns:
-        discord.Color
-    """
-    color_str = color_str.lower().strip()
-    
-    color_map = {
-        "azul": discord.Color.blue(),
-        "vermelho": discord.Color.red(),
-        "verde": discord.Color.green(),
-        "amarelo": discord.Color.gold(),
-        "roxo": discord.Color.purple(),
-        "rosa": discord.Color.magenta(),
-        "laranja": discord.Color.orange(),
-        "preto": discord.Color.from_rgb(0, 0, 0),
-        "branco": discord.Color.from_rgb(255, 255, 255),
-    }
-    
-    if color_str in color_map:
-        return color_map[color_str]
-    
-    if color_str.startswith("#"):
-        try:
-            hex_color = color_str[1:]
-            return discord.Color(int(hex_color, 16))
-        except ValueError:
-            return discord.Color.blue()
-    
-    return discord.Color.blue()
-
-def truncate_text(text: str, max_length: int = 100) -> str:
-    """
-    Trunca um texto se exceder o tamanho máximo.
-    
-    Args:
-        text: Texto a ser truncado
-        max_length: Tamanho máximo
-        
-    Returns:
-        Texto truncado
-    """
-    if len(text) <= max_length:
-        return text
-    return text[:max_length - 3] + "..."
+    # detalhamento simples (cada linha)
+    # usa chaves legíveis do tickets (tag/manual/roles)
+    detail_lines = format_tickets_list(tickets, None) if False else []  # placeholder se precisar do guild
+    # se quiser detalhar cargos por id, caller pode substituir por versión com guild
+    # aqui apenas inclui separador se houver detalhes externos
+    return lines
