@@ -1309,10 +1309,11 @@ async def controle_acesso(
                 ephemeral=True
             )
 
-@bot.tree.command(name="tag_manual", description="[ADMIN] Concede TAG manual a um participante")
+# Modifique o comando tag_manual removendo a verificação de inscrição
+@bot.tree.command(name="tag_manual", description="[ADMIN] Concede TAG manual a um usuário")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
-    usuario="Usuário que receberá a TAG manual",
+    usuario="Usuário que receberá a TAG",
     quantidade="Quantidade de fichas extras da TAG (padrão: 1)"
 )
 async def tag_manual(
@@ -1327,14 +1328,6 @@ async def tag_manual(
         )
         return
     
-    # Verifica se o usuário está inscrito
-    if not db.is_registered(usuario.id):
-        await interaction.response.send_message(
-            f"❌ {usuario.mention} não está inscrito no sorteio!",
-            ephemeral=True
-        )
-        return
-    
     if quantidade < 0:
         await interaction.response.send_message(
             "❌ A quantidade não pode ser negativa!",
@@ -1342,35 +1335,20 @@ async def tag_manual(
         )
         return
     
-    # Define a TAG manual
+    # Define/Remove a TAG manual
     if quantidade == 0:
-        # Remove a TAG manual no DB e atualiza tickets armazenados
         db.remove_manual_tag(usuario.id)
-        participant = db.get_participant(usuario.id)
-        if participant:
-            new_tickets = {k: v for k, v in participant["tickets"].items() if k != "manual_tag"}
-            db.update_tickets(usuario.id, new_tickets)
         await interaction.response.send_message(
-            f"✅ TAG manual removida de {usuario.mention}!",
+            f"✅ TAG removida de {usuario.mention}!",
             ephemeral=True
         )
         logger.info(f"TAG manual removida de {usuario} por {interaction.user}")
     else:
-        # Primeiro persiste a TAG manual específica
         db.set_manual_tag(usuario.id, quantidade)
-        # Recupera os dados atualizados do participante
-        participant = db.get_participant(usuario.id) or {"tickets": {}}
-        # Garante que os tickets atualizados incluam a manual_tag
-        new_tickets = {**participant.get("tickets", {}), "manual_tag": quantidade}
-        db.update_tickets(usuario.id, new_tickets)
-        
-        total_tickets = utils.get_total_tickets(new_tickets)
-        
         await interaction.response.send_message(
-            f"✅ TAG manual concedida!\n"
+            f"✅ TAG concedida!\n"
             f"**Usuário**: {usuario.mention}\n"
-            f"**Fichas da TAG**: {quantidade}\n"
-            f"**Total de fichas**: {total_tickets}",
+            f"**Fichas da TAG**: {quantidade}",
             ephemeral=True
         )
         logger.info(f"TAG manual ({quantidade} fichas) concedida a {usuario} por {interaction.user}")
