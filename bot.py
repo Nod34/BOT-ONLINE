@@ -176,6 +176,61 @@ class InscricaoModal(discord.ui.Modal, title="Inscrição no Sorteio"):
             except:
                 pass
 
+class InscricaoView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Inscrever-se no Sorteio",
+        style=discord.ButtonStyle.green,
+        custom_id="inscricao_button"
+    )
+    async def inscricao_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if db.is_registered(interaction.user.id):
+            await interaction.response.send_message(
+                "❌ Você já está inscrito no sorteio!",
+                ephemeral=True
+            )
+            return
+        modal = InscricaoModal()
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(
+        label="Verificar minha inscrição",
+        style=discord.ButtonStyle.secondary,
+        custom_id="verificar_button"
+    )
+    async def verificar_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        participant = db.get_participant(interaction.user.id)
+        if not participant:
+            await interaction.response.send_message(
+                "❌ Você não está inscrito no sorteio.",
+                ephemeral=True
+            )
+            return
+
+        first_name = participant["first_name"]
+        last_name = participant["last_name"]
+        tickets = participant["tickets"]
+        total_tickets = utils.get_total_tickets(tickets)
+
+        embed = discord.Embed(
+            title="✅ Seu Status de Inscrição",
+            description=f"**Nome**: {first_name} {last_name}",
+            color=discord.Color.green()
+        )
+
+        embed.add_field(name="Total de Fichas", value=f"🎫 {total_tickets}", inline=False)
+
+        tickets_list = utils.format_tickets_list(tickets, interaction.guild)
+        embed.add_field(
+            name="Detalhamento",
+            value="\n".join(tickets_list),
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 class InscricaoButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -202,7 +257,7 @@ async def on_ready():
     try:
         button_msg_id = db.get_button_message_id()
         if button_msg_id:
-            bot.add_view(InscricaoButton(), message_id=button_msg_id)
+            bot.add_view(InscricaoView(), message_id=button_msg_id)
             logger.info(f"View do botão re-registrada para message_id: {button_msg_id}")
     except Exception as e:
         logger.error(f"Erro ao re-registrar view: {e}")
@@ -330,7 +385,7 @@ async def setup_inscricao(
         
         db.set_inscricao_channel(canal_inscricoes.id)
         
-        view = InscricaoButton()
+        view = InscricaoView()
         
         content = mensagem or "**INSCRIÇÕES ABERTAS!**\nClique no botão em baixo para se inscrever!"
         
