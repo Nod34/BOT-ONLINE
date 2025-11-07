@@ -196,6 +196,18 @@ class InscricaoView(discord.ui.View):
         custom_id="inscricao_button"
     )
     async def inscricao_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # impede inscrições quando encerrado
+        try:
+            if db.get_inscricoes_closed():
+                await interaction.response.send_message(
+                    "❌ As inscrições estão encerradas no momento.",
+                    ephemeral=True
+                )
+                return
+        except Exception:
+            # se DB não tiver a função, continua (compatibilidade)
+            pass
+
         if db.is_registered(interaction.user.id):
             await interaction.response.send_message(
                 "❌ Você já está inscrito no sorteio!",
@@ -252,6 +264,17 @@ class InscricaoButton(discord.ui.View):
         custom_id="inscricao_button"
     )
     async def inscricao_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # impede inscrições quando encerrado
+        try:
+            if db.get_inscricoes_closed():
+                await interaction.response.send_message(
+                    "❌ As inscrições estão encerradas no momento.",
+                    ephemeral=True
+                )
+                return
+        except Exception:
+            pass
+
         if db.is_registered(interaction.user.id):
             await interaction.response.send_message(
                 "❌ Você já está inscrito no sorteio!",
@@ -861,6 +884,12 @@ async def limpar(interaction: discord.Interaction):
         )
         return
     
+    def make_closed_view():
+        v = discord.ui.View(timeout=None)
+        btn = discord.ui.Button(label="Inscrições Encerradas", style=discord.ButtonStyle.gray, disabled=True)
+        v.add_item(btn)
+        return v
+
     class ConfirmView(discord.ui.View):
         def __init__(self):
             super().__init__(timeout=60)
@@ -929,6 +958,45 @@ async def limpar(interaction: discord.Interaction):
                 ephemeral=True
             )
             self.stop()
+
+        @discord.ui.button(label="Encerrar Inscrições", style=discord.ButtonStyle.secondary)
+        async def end_inscricoes(self, inter: discord.Interaction, button: discord.ui.Button):
+            # marca encerrado no DB
+            try:
+                db.set_inscricoes_closed(True)
+            except Exception:
+                # se DB não implementar, apenas continua e notifica
+                pass
+
+            # tenta editar a mensagem do botão original (procurando entre canais do guild)
+            button_msg_id = db.get_button_message_id()
+            edited = False
+            if button_msg_id:
+                for ch in inter.guild.text_channels:
+                    try:
+                        msg = await ch.fetch_message(button_msg_id)
+                        # substitui view por uma view com botão desativado
+                        try:
+                            await msg.edit(content="❌ INSCRIÇÕES ENCERRADAS", view=make_closed_view())
+                        except Exception:
+                            # fallback: apenas editar conteúdo
+                            await msg.edit(content="❌ INSCRIÇÕES ENCERRADAS")
+                        edited = True
+                        break
+                    except discord.NotFound:
+                        continue
+                    except Exception:
+                        continue
+
+            # enviar resposta ao executor
+            await inter.response.send_message(
+                f"✅ Inscrições encerradas!\n"
+                f"{'Mensagem do botão atualizada.' if edited else 'Não foi possível encontrar/editar a mensagem do botão.'}",
+                ephemeral=True
+            )
+
+            logger.info(f"Inscrições encerradas por {inter.user} (edited_button={edited})")
+            self.stop()
         
         @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary)
         async def cancel(self, inter: discord.Interaction, button: discord.ui.Button):
@@ -945,7 +1013,8 @@ async def limpar(interaction: discord.Interaction):
     msg = await interaction.response.send_message(
         "⚠️ **Escolha o tipo de limpeza:**\n"
         "• **Limpar Inscrições**: Removes only participants data\n"
-        "• **Limpar Tudo**: Removes participants AND settings",
+        "• **Limpar Tudo**: Removes participants AND settings\n"
+        "• **Encerrar Inscrições**: Fecha novas inscrições e atualiza o botão para 'Inscrições Encerradas'",
         view=view,
         ephemeral=True
     )
