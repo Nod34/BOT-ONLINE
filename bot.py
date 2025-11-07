@@ -373,8 +373,7 @@ async def verificar(interaction: discord.Interaction):
 # novo — movendo a permissão para o decorator do comando
 @bot.tree.command(
     name="setup_inscricao",
-    description="[ADMIN] Configura o sistema de inscrições",
-    default_member_permissions=discord.Permissions(administrator=True)
+    description="[ADMIN] Configura o sistema de inscrições"
 )
 @app_commands.guild_only()
 @app_commands.describe(
@@ -390,6 +389,14 @@ async def setup_inscricao(
     mensagem: Optional[str] = None,
     midia: Optional[discord.Attachment] = None
 ):
+    # checagem de permissão manual (compatível com qualquer versão)
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+
     try:
         await interaction.response.defer(ephemeral=True)
         
