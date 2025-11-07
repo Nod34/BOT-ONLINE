@@ -471,7 +471,13 @@ async def setup_inscricao(
         await interaction.response.defer(ephemeral=True)
         
         db.set_inscricao_channel(canal_inscricoes.id)
-        
+
+        # **IMPORTANTE**: ao criar um novo botão garantimos que as inscrições estarão abertas
+        try:
+            db.set_inscricoes_closed(False)
+        except Exception:
+            pass
+
         # passa a flag para a view: se False, o botão "Verificar minha inscrição" é removido
         view = InscricaoView(show_verify=bool(verificar_botao))
         
