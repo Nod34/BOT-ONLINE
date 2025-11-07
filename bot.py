@@ -311,7 +311,7 @@ async def verificar(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.tree.command(name="setup_inscricao", description="[ADMIN] Configura o sistema de inscrições")
-@app_commands.default_permissions(administrator=True)
+@app_commands.default_prmissions(administrator=True)
 @app_commands.describe(
     canal_botao="Canal onde será enviado o botão de inscrição",
     canal_inscricoes="Canal onde serão postadas as inscrições",
@@ -368,7 +368,9 @@ def is_admin_or_moderator(interaction: discord.Interaction) -> bool:
     return interaction.user.guild_permissions.administrator or db.is_moderator(interaction.user.id)
 
 @bot.tree.command(name="hashtag", description="[ADMIN] Define a hashtag obrigatória")
-@app_commands.describe(hashtag="Hashtag obrigatória para inscrição")
+@app_commands.guild_only()
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(hashag="Hashtag obrigatória para inscrição")
 async def hashtag(interaction: discord.Interaction, hashtag: str):
     if not is_admin_or_moderator(interaction):
         await interaction.response.send_message(
@@ -492,6 +494,8 @@ async def tag(
         logger.info(f"TAG desativada por {interaction.user}")
 
 @bot.tree.command(name="fichas", description="[ADMIN] Adiciona um cargo bônus")
+@app_commands.guild_only()
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     cargo="Cargo que dará fichas bônus",
     quantidade="Quantidade de fichas bônus",
@@ -842,6 +846,8 @@ async def estatisticas(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.tree.command(name="limpar", description="[ADMIN] Limpa dados do sistema")
+@app_commands.guild_only()
+@app_commands.default_permissions(administrator=True)
 async def limpar(interaction: discord.Interaction):
     if not is_admin_or_moderator(interaction):
         await interaction.response.send_message(
