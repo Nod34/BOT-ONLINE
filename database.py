@@ -29,7 +29,9 @@ def load() -> Dict[str, Any]:
                 "quantity": 1
             },
             "inscricao_channel": None,
-            "button_message_id": None,
+            # agora armazena lista de message_ids (retrocompatível com single)
+            "button_message_id": [],
+            "inscricoes_closed": False,
             "blacklist": {},
             "chat_lock": {
                 "enabled": False,
@@ -79,6 +81,10 @@ def add_participant(user_id: int, first_name: str, last_name: str,
         True se adicionou com sucesso
     """
     data = load()
+    # garante estrutura mínima de tickets
+    tickets = tickets or {}
+    if "base" not in tickets:
+        tickets.setdefault("base", 1)
     data["participants"][str(user_id)] = {
         "first_name": first_name,
         "last_name": last_name,
@@ -311,6 +317,27 @@ def get_inscricao_channel() -> Optional[int]:
     data = load()
     return data["inscricao_channel"]
 
+# button message helpers (suporta múltiplos IDs)
+def add_button_message_id(message_id: int) -> bool:
+    """
+    Adiciona um ID de mensagem à lista de mensagens do botão de inscrição.
+    
+    Args:
+        message_id: ID da mensagem a ser adicionada
+        
+    Returns:
+        True se adicionou com sucesso
+    """
+    data = load()
+    mids = data.get("button_message_id", [])
+    if not isinstance(mids, list):
+        # compatibilidade: transforma single em lista
+        mids = [mids] if mids else []
+    if str(message_id) not in [str(x) for x in mids]:
+        mids.append(int(message_id))
+    data["button_message_id"] = mids
+    return save(data)
+
 def set_button_message_id(message_id: Optional[int]) -> bool:
     """
     Define o ID da mensagem com o botão de inscrição.
@@ -325,15 +352,39 @@ def set_button_message_id(message_id: Optional[int]) -> bool:
     data["button_message_id"] = message_id
     return save(data)
 
-def get_button_message_id() -> Optional[int]:
+def get_button_message_id() -> Any:
     """
-    Obtém o ID da mensagem com o botão.
+    Obtém o(s) ID(s) da mensagem com o botão de inscrição.
     
     Returns:
-        ID da mensagem ou None
+        ID da mensagem ou lista de IDs
     """
     data = load()
     return data.get("button_message_id")
+
+def set_inscricoes_closed(enabled: bool) -> bool:
+    """
+    Define se as inscrições estão fechadas.
+    
+    Args:
+        enabled: True para fechar inscrições, False para abrir
+        
+    Returns:
+        True se atualizou com sucesso
+    """
+    data = load()
+    data["inscricoes_closed"] = bool(enabled)
+    return save(data)
+
+def get_inscricoes_closed() -> bool:
+    """
+    Verifica se as inscrições estão fechadas.
+    
+    Returns:
+        True se estão fechadas
+    """
+    data = load()
+    return bool(data.get("inscricoes_closed", False))
 
 def add_to_blacklist(user_id: int, reason: str, banned_by: int) -> bool:
     """
@@ -452,12 +503,14 @@ def clear_all() -> bool:
             "quantity": 1
         },
         "inscricao_channel": None,
-        "button_message_id": None,
+        "button_message_id": [],
+        "inscricoes_closed": False,
         "blacklist": {},
         "chat_lock": {
             "enabled": False,
             "channel_id": None
-        }
+        },
+        "moderators": []
     }
     return save(data)
 
@@ -477,10 +530,12 @@ def get_statistics() -> Dict[str, Any]:
     participants_with_tag = 0
     
     for participant in participants.values():
-        tickets = participant["tickets"]
+        tickets = participant.get("tickets", {})
+        # base
+        base = tickets.get("base", 1)
+        total_tickets += base
         
-        total_tickets += tickets.get("base", 1)
-        
+        # roles
         if "roles" in tickets:
             for role_id, role_data in tickets["roles"].items():
                 if role_id not in tickets_by_role:
@@ -493,16 +548,26 @@ def get_statistics() -> Dict[str, Any]:
                 tickets_by_role[role_id]["total_tickets"] += role_data.get("quantity", 0)
                 total_tickets += role_data.get("quantity", 0)
         
-        if tickets.get("tag", 0) > 0:
+        # tag automatic
+        tag_amount = tickets.get("tag", 0)
+        if tag_amount > 0:
             participants_with_tag += 1
-            total_tickets += tickets["tag"]
+            total_tickets += tag_amount
+        
+        # manual tag
+        manual = tickets.get("manual_tag", 0)
+        if manual and manual > 0:
+            # if manual_tag present we also count as participant with tag (avoid double count)
+            if tag_amount == 0:
+                participants_with_tag += 1
+            total_tickets += manual
     
     return {
         "total_participants": total_participants,
         "total_tickets": total_tickets,
         "tickets_by_role": tickets_by_role,
         "participants_with_tag": participants_with_tag,
-        "blacklist_count": len(data["blacklist"])
+        "blacklist_count": len(data.get("blacklist", {}))
     }
 
 def update_tickets(user_id: int, tickets: Dict[str, Any]) -> bool:
@@ -581,6 +646,7 @@ def is_moderator(user_id: int) -> bool:
     data = load()
     return str(user_id) in data.get("moderators", [])
 
+# MANUAL TAG helpers (guardam quantidade em tickets.manual_tag)
 def set_manual_tag(user_id: int, quantity: int) -> bool:
     """
     Define fichas de TAG manual para um participante.
@@ -595,10 +661,9 @@ def set_manual_tag(user_id: int, quantity: int) -> bool:
     data = load()
     if str(user_id) not in data["participants"]:
         return False
-    
-    # Substitui a ficha de TAG automática pela manual
-    data["participants"][str(user_id)]["tickets"]["tag"] = quantity
-    data["participants"][str(user_id)]["manual_tag"] = True
+    tickets = data["participants"][str(user_id)].get("tickets", {})
+    tickets["manual_tag"] = int(quantity)
+    data["participants"][str(user_id)]["tickets"] = tickets
     return save(data)
 
 def remove_manual_tag(user_id: int) -> bool:
@@ -614,10 +679,10 @@ def remove_manual_tag(user_id: int) -> bool:
     data = load()
     if str(user_id) not in data["participants"]:
         return False
-    
-    data["participants"][str(user_id)]["tickets"]["tag"] = 0
-    if "manual_tag" in data["participants"][str(user_id)]:
-        del data["participants"][str(user_id)]["manual_tag"]
+    tickets = data["participants"][str(user_id)].get("tickets", {})
+    if "manual_tag" in tickets:
+        del tickets["manual_tag"]
+    data["participants"][str(user_id)]["tickets"] = tickets
     return save(data)
 
 def has_manual_tag(user_id: int) -> bool:
@@ -634,4 +699,4 @@ def has_manual_tag(user_id: int) -> bool:
     participant = data["participants"].get(str(user_id))
     if not participant:
         return False
-    return participant.get("manual_tag", False)
+    return bool(participant.get("tickets", {}).get("manual_tag", 0))
