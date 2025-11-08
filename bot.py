@@ -207,16 +207,11 @@ class InscricaoView(discord.ui.View):
                 entry = bl.get(str(interaction.user.id)) or bl.get(interaction.user.id)
             if entry:
                 reason = entry.get("reason", "Não especificado")
-                banned_by = entry.get("banned_by")
-                banned_by_text = f"<@{banned_by}>" if banned_by else "Sistema"
-                embed = discord.Embed(
-                    title="🚫 Você está na blacklist",
-                    description=f"Você não pode se inscrever neste sorteio.",
-                    color=discord.Color.red()
+                # enviar mensagem simples (sem embed e sem mostrar quem baniu)
+                await interaction.response.send_message(
+                    f"🚫 Você está na blacklist\n\nMotivo: {reason}",
+                    ephemeral=True
                 )
-                embed.add_field(name="Motivo", value=reason, inline=False)
-                embed.add_field(name="Banido por", value=banned_by_text, inline=False)
-                await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
         except Exception:
             # se qualquer erro ao checar blacklist, continua com fluxo normal
@@ -301,16 +296,11 @@ class InscricaoButton(discord.ui.View):
                 entry = bl.get(str(interaction.user.id)) or bl.get(interaction.user.id)
             if entry:
                 reason = entry.get("reason", "Não especificado")
-                banned_by = entry.get("banned_by")
-                banned_by_text = f"<@{banned_by}>" if banned_by else "Sistema"
-                embed = discord.Embed(
-                    title="🚫 Você está na blacklist",
-                    description=f"Você não pode se inscrever neste sorteio.",
-                    color=discord.Color.red()
+                # mensagem simples (sem embed e sem exibir quem baniu)
+                await interaction.response.send_message(
+                    f"🚫 Você está na blacklist\n\nMotivo: {reason}",
+                    ephemeral=True
                 )
-                embed.add_field(name="Motivo", value=reason, inline=False)
-                embed.add_field(name="Banido por", value=banned_by_text, inline=False)
-                await interaction.response.send_message(embed=embed, ephemeral=True)
                 return
         except Exception:
             pass
@@ -1238,20 +1228,18 @@ async def blacklist(
             )
             return
         
-        embed = discord.Embed(
-            title="🚫 Blacklist",
-            color=discord.Color.red()
-        )
-        
+        # construir lista simples de texto (sem embed, sem mostrar quem baniu)
+        lines = ["🚫 Blacklist:"]
         for user_id, data in blacklist_data.items():
-            user = await bot.fetch_user(int(user_id))
-            embed.add_field(
-                name=f"{user.name}",
-                value=f"**Motivo**: {data['reason']}\n**Banido por**: <@{data['banned_by']}>",
-                inline=False
-            )
+            try:
+                user = await bot.fetch_user(int(user_id))
+                display = user.mention
+            except Exception:
+                display = f"ID: {user_id}"
+            reason = data.get("reason", "Não especificado")
+            lines.append(f"• {display} — Motivo: {reason}")
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
         return
     
     if not usuario:
