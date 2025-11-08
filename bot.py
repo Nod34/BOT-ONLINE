@@ -933,7 +933,6 @@ async def limpar(interaction: discord.Interaction):
         async def confirm_participants(self, inter: discord.Interaction, button: discord.ui.Button):
             if self.closed:
                 return
-            # evita "esta interação falhou" para operações longas
             await inter.response.defer(ephemeral=True)
 
             participants = db.get_all_participants() or {}
@@ -1051,6 +1050,35 @@ async def limpar(interaction: discord.Interaction):
             await inter.response.defer(ephemeral=True)
             await inter.followup.send("❌ Operação cancelada.", ephemeral=True)
             await self.safe_delete_message()
+
+    # envia a View com explicação — guarda referência da mensagem para a view
+    embed = discord.Embed(
+        title="⚠️ Painel de Limpeza",
+        description=(
+
+            "Escolha uma ação abaixo:\n"
+            "• Limpar Inscrições — removes participantes e mensagens de inscrições.\n"
+            "• Limpar Tudo — reseta todos os dados do sistema.\n"
+            "• Encerrar Inscrições — fecha inscrições e atualiza o(s) botão(ões).\n"
+            "• Cancelar — fecha este painel sem alterações."
+        ),
+        color=discord.Color.orange()
+    )
+    view = ConfirmView()
+    try:
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        # obtém a message object e atribui à view para que safe_delete_message consiga apagar
+        try:
+            orig = await interaction.original_response()
+            view.message = orig
+        except Exception:
+            view.message = None
+    except Exception as e:
+        logger.error(f"Erro ao enviar painel /limpar: {e}", exc_info=True)
+        try:
+            await interaction.response.send_message("❌ Erro ao abrir painel de limpeza.", ephemeral=True)
+        except:
+            pass
 
 @bot.tree.command(name="blacklist", description="[ADMIN] Gerencia a blacklist")
 @app_commands.default_permissions(administrator=True)
