@@ -920,7 +920,6 @@ async def limpar(interaction: discord.Interaction):
             self.closed = False  # flag para evitar dupla execução
 
         async def safe_delete_message(self):
-            """Tenta deletar a mensagem de forma segura"""
             if not self.closed and self.message:
                 try:
                     await self.message.delete()
@@ -928,6 +927,56 @@ async def limpar(interaction: discord.Interaction):
                     pass
             self.closed = True
             self.stop()
+
+        def _extract_mid(self, data):
+            # tenta várias chaves comuns onde o DB pode ter guardado o id da mensagem
+            return data.get("message_id") or data.get("msg_id") or data.get("mid") or data.get("message") or data.get("messageId")
+
+        async def _delete_msg_by_id(self, inter: discord.Interaction, mid):
+            """Tenta deletar a mensagem: primeiro no canal configurado, depois procura em todos os canais do guild."""
+            try:
+                mid_int = int(mid)
+            except Exception:
+                logger.warning(f"ID de mensagem inválido: {mid}")
+                return False
+
+            channel_id = db.get_inscricao_channel()
+            channel = None
+            # tenta pegar canal a partir do guild (mais confiável dentro de interações)
+            try:
+                if channel_id:
+                    channel = inter.guild.get_channel(int(channel_id))
+            except Exception:
+                channel = None
+
+            # fallback para cache global
+            if not channel and channel_id:
+                try:
+                    channel = bot.get_channel(int(channel_id))
+                except Exception:
+                    channel = None
+
+            # tenta deletar no canal conhecido
+            if channel:
+                try:
+                    msg = await channel.fetch_message(mid_int)
+                    await msg.delete()
+                    return True
+                except Exception as e:
+                    logger.debug(f"Não conseguiu deletar mensagem {mid_int} no canal {getattr(channel,'id',None)}: {e}")
+
+            # procura em todos os canais do guild (custa mais, mas encontra mensagens em canal diferente)
+            for ch in inter.guild.text_channels:
+                try:
+                    msg = await ch.fetch_message(mid_int)
+                    await msg.delete()
+                    logger.info(f"Mensagem {mid_int} removida no canal {ch.id}")
+                    return True
+                except Exception:
+                    continue
+
+            logger.warning(f"Não foi possível encontrar/deletar a mensagem {mid_int} em nenhum canal do servidor.")
+            return False
 
         @discord.ui.button(label="Limpar Inscrições", style=discord.ButtonStyle.danger)
         async def confirm_participants(self, inter: discord.Interaction, button: discord.ui.Button):
@@ -937,24 +986,27 @@ async def limpar(interaction: discord.Interaction):
 
             participants = db.get_all_participants() or {}
             deleted_count = 0
-            channel_id = db.get_inscricao_channel()
-            channel = bot.get_channel(channel_id) if channel_id else None
+            attempted = 0
 
             for user_id, data in list(participants.items()):
-                mid = data.get("message_id")
-                if mid and channel:
-                    try:
-                        msg = await channel.fetch_message(int(mid))
-                        await msg.delete()
+                mid = self._extract_mid(data)
+                if not mid:
+                    logger.debug(f"Participante {user_id} não tem message_id salvo.")
+                    continue
+                attempted += 1
+                try:
+                    ok = await self._delete_msg_by_id(inter, mid)
+                    if ok:
                         deleted_count += 1
-                    except Exception as e:
-                        logger.warning(f"Falha ao deletar mensagem {mid}: {e}")
+                except Exception as e:
+                    logger.warning(f"Erro ao tentar deletar mensagem {mid}: {e}", exc_info=True)
 
             try:
                 db.clear_participants()
             except Exception as e:
                 logger.error(f"Erro ao limpar participantes no DB: {e}", exc_info=True)
 
+            logger.info(f"/limpar -> participantes={len(participants)} attempted_delete={attempted} deleted_messages={deleted_count}")
             await inter.followup.send(
                 f"✅ Inscrições limpas!\n"
                 f"**Participantes removidos**: {len(participants)}\n"
@@ -972,24 +1024,26 @@ async def limpar(interaction: discord.Interaction):
 
             participants = db.get_all_participants() or {}
             deleted_count = 0
-            channel_id = db.get_inscricao_channel()
-            channel = bot.get_channel(channel_id) if channel_id else None
+            attempted = 0
 
             for user_id, data in list(participants.items()):
-                mid = data.get("message_id")
-                if mid and channel:
-                    try:
-                        msg = await channel.fetch_message(int(mid))
-                        await msg.delete()
+                mid = self._extract_mid(data)
+                if not mid:
+                    continue
+                attempted += 1
+                try:
+                    ok = await self._delete_msg_by_id(inter, mid)
+                    if ok:
                         deleted_count += 1
-                    except Exception as e:
-                        logger.warning(f"Falha ao deletar mensagem {mid}: {e}")
+                except Exception as e:
+                    logger.warning(f"Erro ao tentar deletar mensagem {mid}: {e}", exc_info=True)
 
             try:
                 db.clear_all()
             except Exception as e:
                 logger.error(f"Erro ao resetar DB: {e}", exc_info=True)
 
+            logger.info(f"/limpar tudo -> participantes={len(participants)} attempted_delete={attempted} deleted_messages={deleted_count}")
             await inter.followup.send(
                 f"✅ Tudo limpo! Sistema resetado.\n"
                 f"**Mensagens deletadas**: {deleted_count}",
@@ -1018,7 +1072,6 @@ async def limpar(interaction: discord.Interaction):
 
             edited = False
             for bid in button_ids:
-                # tenta buscar a mensagem nos canais do guild
                 for ch in inter.guild.text_channels:
                     try:
                         msg = await ch.fetch_message(int(bid))
