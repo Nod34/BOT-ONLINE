@@ -3,6 +3,8 @@ import discord
 import os
 import logging
 import utils
+import io
+from typing import Literal
 from datetime import datetime
 from discord import app_commands
 from discord.ext import commands
@@ -792,56 +794,87 @@ async def lista(interaction: discord.Interaction, tipo: Literal["simples", "com_
     else:
         await interaction.followup.send(content, ephemeral=True)
 
-@bot.tree.command(name="exportar", description="[ADMIN] Exporta lista de participantes")
+@bot.tree.command(
+    name="exportar",
+    description="[ADMIN] Exporta lista de participantes compatível com Marbles on Stream (CSV)"
+)
+@app_commands.guild_only()
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(tipo="Tipo de exportação")
-async def exportar(interaction: discord.Interaction, tipo: Literal["simples", "com_fichas"]):
-    participants = db.get_all_participants()
-    
-    if not participants:
-        await interaction.response.send_message(
-            "📋 Nenhum participante para exportar.",
-            ephemeral=True
-        )
-        return
-    
+@app_commands.describe(tipo='simples|com_fichas')
+async def exportar(interaction: discord.Interaction, tipo: Literal['simples','com_fichas'] = 'com_fichas'):
+    """Gera .csv pronto para importar no Marbles on Stream.
+    Em 'simples' = 1 linha por participante.
+    Em 'com_fichas' = repete o nome por cada ficha exatamente como /lista (com abreviação das fichas),
+    mas altera o sobrenome para as duas primeiras letras + '.' (ex: 'Rafael Fe.') e remove aspas.
+    """
     await interaction.response.defer(ephemeral=True)
-    lines = []
-    
-    if tipo == "simples":
-        # Cria lista de nomes e ordena alfabeticamente (igual ao /lista simples)
-        names = [f"{data['first_name']} {data['last_name']}" for _, data in participants.items()]
-        names.sort(key=lambda s: s.lower())
-        
-        lines.append("📋 Lista de Participantes (Simples)\n")
-        for i, name in enumerate(names, 1):
-            lines.append(f"{i}. {name}")
-    else:
-        lines.append("📋 Lista de Participantes (Com Fichas)\n")
-        # monta a mesma estrutura do /lista com_fichas (sem linhas em branco entre participantes)
-        for user_id, data in participants.items():
-            entries = utils.format_detailed_entry(
-                data["first_name"],
-                data["last_name"],
-                data["tickets"]
-            )
-            lines.extend(entries)
-    
-    content = "\n".join(lines)
-    
-    # Salva em arquivo
-    filename = f"participantes_{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    with open(filename, 'w', encoding='utf-8') as f:
-        f.write(content)
-    
-    await interaction.followup.send(
-        f"✅ Lista exportada! Total: {len(participants)} participante(s)",
-        file=discord.File(filename),
-        ephemeral=True
-    )
-    
-    os.remove(filename)
-    logger.info(f"Lista exportada ({tipo}) por {interaction.user}")
+    participants = db.get_all_participants() or {}
+
+    lines: list[str] = []
+
+    for uid, data in participants.items():
+        first = (data.get("first_name") or "").strip()
+        last = (data.get("last_name") or "").strip()
+        if not first and not last:
+            continue
+
+        # formato de sobrenome abreviado: pegar primeiro token do sobrenome e tomar 2 chars
+        last_token = last.split()[0] if last else ""
+        last_abbr = (last_token[:2].capitalize() + ".") if last_token else ""
+
+        if tipo == "simples":
+            name = f"{first} {last_abbr}".strip()
+            # tira aspas caso existam
+            name = name.replace('"', "").replace("'", "")
+            lines.append(name)
+            continue
+
+        # com_fichas: pegar as mesmas entradas que /lista (usa util para consistência)
+        try:
+            entries = utils.format_detailed_entry(first, last, data.get("tickets", {}), interaction.guild)
+        except Exception:
+            # fallback simples: inclui base + roles/tags manualmente se utils falhar
+            entries = [f"{first} {last}"]
+            tickets = data.get("tickets", {}) or {}
+            # roles
+            for role_info in (tickets.get("roles") or {}).values():
+                qty = int(role_info.get("quantity", role_info.get("qty", 1)) or 1)
+                abbr = (role_info.get("abbreviation") or role_info.get("abreviation") or "").strip()
+                for _ in range(qty):
+                    entries.append(f"{first} {last} {abbr}".strip())
+            # tags
+            tag_qty = int(tickets.get("tag", 0) or 0) + int(tickets.get("manual_tag", 0) or 0)
+            tag_abbr = (tickets.get("tag_text") or tickets.get("tag_abbreviation") or "").strip() or "TAG"
+            for _ in range(tag_qty):
+                entries.append(f"{first} {last} {tag_abbr}".strip())
+
+        # transforma cada linha trocando sobrenome completo pela forma abreviada e removendo aspas
+        full_name = f"{first} {last}".strip()
+        short_name = f"{first} {last_abbr}".strip()
+        for e in entries:
+            # substitui apenas a primeira ocorrência do nome completo (caso já venha com abreviação de ficha)
+            if full_name and full_name in e:
+                new = e.replace(full_name, short_name, 1)
+            else:
+                # se não encontrar o full_name (por algum formato diferente), tenta inserir short_name no começo
+                new = e
+                if not new.startswith(first):
+                    new = f"{short_name} {new}".strip()
+            # remove aspas simples/duplas e strip
+            new = new.replace('"', "").replace("'", "").strip()
+            lines.append(new)
+
+    if not lines:
+        await interaction.followup.send("Nenhum participante para exportar.", ephemeral=True)
+        return
+
+    # gera CSV simples: uma coluna, sem cabeçalho, sem aspas (já removidas)
+    csv_text = "\n".join(lines) + "\n"
+    bio = io.BytesIO(csv_text.encode("utf-8"))
+    bio.seek(0)
+    now = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = f"marbles_participantes_{tipo}_{now}.csv"
+    await interaction.followup.send(file=discord.File(fp=bio, filename=filename))
 
 @bot.tree.command(name="atualizar", description="[ADMIN] Recalcula fichas de todos os participantes")
 @app_commands.default_permissions(administrator=True)
