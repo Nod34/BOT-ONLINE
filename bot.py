@@ -987,29 +987,45 @@ async def limpar(interaction: discord.Interaction):
             participants = db.get_all_participants() or {}
             deleted_count = 0
             attempted = 0
+            removed_from_db = 0
 
+            # tenta deletar mensagens e remover participante individualmente (workaround se clear_participants estiver quebrado)
             for user_id, data in list(participants.items()):
                 mid = self._extract_mid(data)
-                if not mid:
-                    logger.debug(f"Participante {user_id} não tem message_id salvo.")
-                    continue
-                attempted += 1
-                try:
-                    ok = await self._delete_msg_by_id(inter, mid)
-                    if ok:
-                        deleted_count += 1
-                except Exception as e:
-                    logger.warning(f"Erro ao tentar deletar mensagem {mid}: {e}", exc_info=True)
+                if mid:
+                    attempted += 1
+                    try:
+                        ok = await self._delete_msg_by_id(inter, mid)
+                        if ok:
+                            deleted_count += 1
+                    except Exception as e:
+                        logger.warning(f"Erro ao tentar deletar mensagem {mid}: {e}", exc_info=True)
 
+                # tenta remover participante individualmente do DB
+                try:
+                    # algumas impls usam str/int keys; tenta ambos
+                    try:
+                        success = db.remove_participant(int(user_id))
+                    except Exception:
+                        success = db.remove_participant(user_id)
+                    if success:
+                        removed_from_db += 1
+                except AttributeError:
+                    # função não existe no DB -> ignora (iremos tentar clear_participants abaixo)
+                    pass
+                except Exception as e:
+                    logger.warning(f"Erro ao remover participante {user_id} individualmente: {e}", exc_info=True)
+
+            # tenta fallback para limpar tudo no DB (apenas se existir)
             try:
                 db.clear_participants()
             except Exception as e:
-                logger.error(f"Erro ao limpar participantes no DB: {e}", exc_info=True)
+                logger.warning(f"clear_participants falhou (ignorado): {e}")
 
-            logger.info(f"/limpar -> participantes={len(participants)} attempted_delete={attempted} deleted_messages={deleted_count}")
+            logger.info(f"/limpar -> participantes={len(participants)} attempted_delete={attempted} deleted_messages={deleted_count} removed_db={removed_from_db}")
             await inter.followup.send(
                 f"✅ Inscrições limpas!\n"
-                f"**Participantes removidos**: {len(participants)}\n"
+                f"**Participantes removidos do DB**: {removed_from_db if removed_from_db>0 else len(participants)}\n"
                 f"**Mensagens deletadas**: {deleted_count}",
                 ephemeral=True
             )
@@ -1025,27 +1041,42 @@ async def limpar(interaction: discord.Interaction):
             participants = db.get_all_participants() or {}
             deleted_count = 0
             attempted = 0
+            removed_from_db = 0
 
             for user_id, data in list(participants.items()):
                 mid = self._extract_mid(data)
-                if not mid:
-                    continue
-                attempted += 1
-                try:
-                    ok = await self._delete_msg_by_id(inter, mid)
-                    if ok:
-                        deleted_count += 1
-                except Exception as e:
-                    logger.warning(f"Erro ao tentar deletar mensagem {mid}: {e}", exc_info=True)
+                if mid:
+                    attempted += 1
+                    try:
+                        ok = await self._delete_msg_by_id(inter, mid)
+                        if ok:
+                            deleted_count += 1
+                    except Exception as e:
+                        logger.warning(f"Erro ao tentar deletar mensagem {mid}: {e}", exc_info=True)
 
+                # tenta remover participante individualmente do DB
+                try:
+                    try:
+                        success = db.remove_participant(int(user_id))
+                    except Exception:
+                        success = db.remove_participant(user_id)
+                    if success:
+                        removed_from_db += 1
+                except AttributeError:
+                    pass
+                except Exception as e:
+                    logger.warning(f"Erro ao remover participante {user_id} individualmente: {e}", exc_info=True)
+
+            # tenta fallback para resetar tudo no DB (se existir)
             try:
                 db.clear_all()
             except Exception as e:
-                logger.error(f"Erro ao resetar DB: {e}", exc_info=True)
+                logger.warning(f"clear_all falhou (ignorado): {e}")
 
-            logger.info(f"/limpar tudo -> participantes={len(participants)} attempted_delete={attempted} deleted_messages={deleted_count}")
+            logger.info(f"/limpar tudo -> participantes={len(participants)} attempted_delete={attempted} deleted_messages={deleted_count} removed_db={removed_from_db}")
             await inter.followup.send(
                 f"✅ Tudo limpo! Sistema resetado.\n"
+                f"**Participantes removidos do DB**: {removed_from_db if removed_from_db>0 else len(participants)}\n"
                 f"**Mensagens deletadas**: {deleted_count}",
                 ephemeral=True
             )
