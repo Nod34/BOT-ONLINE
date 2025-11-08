@@ -196,6 +196,32 @@ class InscricaoView(discord.ui.View):
         custom_id="inscricao_button"
     )
     async def inscricao_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # verifica blacklist antes de tudo
+        try:
+            entry = None
+            try:
+                bl = db.get_blacklist()
+            except Exception:
+                bl = None
+            if bl:
+                entry = bl.get(str(interaction.user.id)) or bl.get(interaction.user.id)
+            if entry:
+                reason = entry.get("reason", "Não especificado")
+                banned_by = entry.get("banned_by")
+                banned_by_text = f"<@{banned_by}>" if banned_by else "Sistema"
+                embed = discord.Embed(
+                    title="🚫 Você está na blacklist",
+                    description=f"Você não pode se inscrever neste sorteio.",
+                    color=discord.Color.red()
+                )
+                embed.add_field(name="Motivo", value=reason, inline=False)
+                embed.add_field(name="Banido por", value=banned_by_text, inline=False)
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+        except Exception:
+            # se qualquer erro ao checar blacklist, continua com fluxo normal
+            pass
+
         # impede inscrições quando encerrado
         try:
             if db.get_inscricoes_closed():
@@ -264,6 +290,31 @@ class InscricaoButton(discord.ui.View):
         custom_id="inscricao_button"
     )
     async def inscricao_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # verifica blacklist antes de tudo (view alternativa)
+        try:
+            entry = None
+            try:
+                bl = db.get_blacklist()
+            except Exception:
+                bl = None
+            if bl:
+                entry = bl.get(str(interaction.user.id)) or bl.get(interaction.user.id)
+            if entry:
+                reason = entry.get("reason", "Não especificado")
+                banned_by = entry.get("banned_by")
+                banned_by_text = f"<@{banned_by}>" if banned_by else "Sistema"
+                embed = discord.Embed(
+                    title="🚫 Você está na blacklist",
+                    description=f"Você não pode se inscrever neste sorteio.",
+                    color=discord.Color.red()
+                )
+                embed.add_field(name="Motivo", value=reason, inline=False)
+                embed.add_field(name="Banido por", value=banned_by_text, inline=False)
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+        except Exception:
+            pass
+
         # impede inscrições quando encerrado
         try:
             if db.get_inscricoes_closed():
