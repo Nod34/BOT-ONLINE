@@ -473,43 +473,49 @@ def get_chat_lock() -> Dict[str, Any]:
     return data["chat_lock"]
 
 def clear_participants():
-    """Limpa apenas dados de participantes mantendo TAGs manuais"""
-    # Guarda TAGs manuais antes de limpar
-    manual_tags = {}
-    try:
-        for user_id, data in get_all_participants().items():
-            if data.get("tickets", {}).get("manual_tag"):
-                manual_tags[user_id] = data["tickets"]["manual_tag"]
-    except:
-        pass
+    """
+    Limpa apenas os participantes do sorteio, preservando quaisquer TAGs manuais.
+    Move manual_tag encontradas em participantes para _db['manual_tags'] antes de limpar.
+    """
+    # garante estrutura
+    manual_tags = _db.get("manual_tags", {}).copy() if isinstance(_db.get("manual_tags", {}), dict) else {}
 
-    # Limpa participantes
+    # extrai manual_tag dos participantes existentes (se houver)
+    for user_id, data in list(_db.get("participants", {}).items()):
+        try:
+            tag_amount = data.get("tickets", {}).get("manual_tag")
+            if tag_amount:
+                manual_tags[str(user_id)] = int(tag_amount)
+        except Exception:
+            continue
+
+    # persiste manual_tags e limpa participantes
+    if manual_tags:
+        _db["manual_tags"] = manual_tags
     _db["participants"] = {}
-    
-    # Restaura TAGs manuais como tickets
-    for user_id, tag_amount in manual_tags.items():
-        _db["participants"][user_id] = {
-            "tickets": {"manual_tag": tag_amount}
-        }
 
 def clear_all():
-    """Limpa tudo exceto TAGs manuais"""
-    manual_tags = {}
-    try:
-        for user_id, data in get_all_participants().items():
-            if data.get("tickets", {}).get("manual_tag"):
-                manual_tags[user_id] = data["tickets"]["manual_tag"]
-    except:
-        pass
+    """
+    Reseta o DB mantendo somente as TAGs manuais (se existirem).
+    """
+    # coleta manual_tags atuais e também dos participantes (por segurança)
+    manual_tags = _db.get("manual_tags", {}).copy() if isinstance(_db.get("manual_tags", {}), dict) else {}
 
+    for user_id, data in list(_db.get("participants", {}).items()):
+        try:
+            tag_amount = data.get("tickets", {}).get("manual_tag")
+            if tag_amount:
+                manual_tags[str(user_id)] = int(tag_amount)
+        except Exception:
+            continue
+
+    # limpa tudo e inicializa defaults
     _db.clear()
     _init_db()
 
-    # Restaura TAGs manuais
-    for user_id, tag_amount in manual_tags.items():
-        _db["participants"][user_id] = {
-            "tickets": {"manual_tag": tag_amount}
-        }
+    # restaura manual_tags se houver
+    if manual_tags:
+        _db["manual_tags"] = manual_tags
 
 def get_statistics() -> Dict[str, Any]:
     """
